@@ -8,21 +8,14 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import yfinance as yf
 import requests
+import gspread
+import pandas as pd
 
 # =====================================================================
-#  KONFIGURATION OG BRUGERDATA (HER EDITERER DU DIN EXCEL-BALANCE)
+#  KONFIGURATION OG MILJØVARIABLER
 # =====================================================================
 
-# Nuværende vægtning i din portefølje (i procent, skal summe til 100%)
-CURRENT_PORTFOLIO = {
-    "Tech & B2B Software": 15.0,
-    "Defensivt Forbrug & Healthcare": 25.0,
-    "Infrastruktur & Grøn Omstilling": 12.0,
-    "Råvarer": 3.0,
-    "ETFer & Sukuk": 45.0
-}
-
-# Ønsket mål-vægtning (i procent, skal summe til 100%)
+# Mål-vægtninger (disse kan du beholde her, eller lade systemet sammenligne med)
 TARGET_PORTFOLIO = {
     "Tech & B2B Software": 20.0,
     "Defensivt Forbrug & Healthcare": 20.0,
@@ -31,17 +24,11 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Tickers opdelt efter dine strategiske kasser (Kandidater til screening)
-CANDIDATE_POOL = {
-    "Tech & B2B Software": ["TRMB", "SAP", "IFX.DE", "MSFT", "ASML"],
-    "Defensivt Forbrug & Healthcare": ["ORK.OL", "NOVO-B.CO", "6869.T", "AZN.ST"],
-    "Infrastruktur & Grøn Omstilling": ["VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO"],
-    "Råvarer": ["WPM", "NEM", "GOLD", "AEM"],
-    "ETFer & Sukuk": ["IGDA.L", "SPSK", "HLAL"]
-}
-
-# Hent API-nøgler og SMTP-indstillinger fra miljøvariabler (GitHub Secrets)
+# Hent credentials og API-nøgler fra GitHub Secrets
+GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # JSON-streng fra din Google Service-konto
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")                      # ID'et fra dit Google Sheet URL
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
@@ -50,12 +37,113 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
 
 # =====================================================================
-#  AGENT 1: PORTFOLIO MANAGER AGENT
+#  GOOGLE SHEETS INTEGRATION AGENT
+# =====================================================================
+class GoogleSheetsAgent:
+    """
+    Forbinder til Google Sheets via gspread ved brug af en Service Account.
+    Henter beholdningsdata og Watchlist/Huller dynamisk.
+    """
+    def __init__(self, credentials_str: str, sheet_id: str):
+        self.credentials_str = credentials_str
+        self.sheet_id = sheet_id
+        self.client = None
+        self.spreadsheet = None
+
+    def connect(self):
+        if not self.credentials_str or not self.sheet_id:
+            raise ValueError("Mangler GOOGLE_SHEETS_CREDENTIALS eller GOOGLE_SHEET_ID i miljøvariablerne.")
+        
+        try:
+            creds_dict = json.loads(self.credentials_str)
+            # Log ind via gspreads indbyggede service account login
+            self.client = gspread.service_account_from_dict(creds_dict)
+            self.spreadsheet = self.client.open_by_key(self.sheet_id)
+        except Exception as e:
+            raise RuntimeError(f"Kunne ikke oprette forbindelse til Google Sheets: {str(e)}")
+
+    def get_current_weights(self) -> dict:
+        """
+        Læser fanen 'Beholdninger', grupperer efter 'H: Drivkraft' 
+        og beregner de aktuelle porteføljevægte.
+        """
+        try:
+            worksheet = self.spreadsheet.worksheet("Beholdninger")
+            data = worksheet.get_all_records()
+            df = pd.DataFrame(data)
+
+            # Sikrer at de nødvendige kolonner findes
+            required_cols = ['Drivkraft', 'Porteføljevægt']
+            for col in required_cols:
+                if col not in df.columns:
+                    raise KeyError(f"Kolonnen '{col}' blev ikke fundet i fanen 'Beholdninger'.")
+
+            # Rens 'Porteføljevægt'-kolonnen (fjerner %, konverterer til float)
+            def clean_weight(val):
+                if pd.isna(val) or val == "":
+                    return 0.0
+                val_str = str(val).replace('%', '').replace(',', '.').strip()
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
+
+            df['Cleaned_Weight'] = df['Porteføljevægt'].apply(clean_weight)
+
+            # Gruppér efter Drivkraft (som svarer til dine kasser i Excel)
+            grouped = df.groupby('Drivkraft')['Cleaned_Weight'].sum().to_dict()
+
+            # Normaliser navne så de matcher TARGET_PORTFOLIO nøgler
+            normalized_portfolio = {}
+            for k, v in TARGET_PORTFOLIO.items():
+                # Lav en simpel case-insensitive søgning
+                found_val = 0.0
+                for g_key, g_val in grouped.items():
+                    if k.lower() in g_key.lower() or g_key.lower() in k.lower():
+                        found_val += g_val
+                normalized_portfolio[k] = found_val
+
+            return normalized_portfolio
+
+        except Exception as e:
+            raise RuntimeError(f"Fejl under behandling af fanen 'Beholdninger': {str(e)}")
+
+    def get_watchlist_tickers(self) -> list:
+        """
+        Læser fanen 'Opsummering' og isolerer kolonnen 'N: Huller / Watchlist'
+        til brug for screening.
+        """
+        try:
+            worksheet = self.spreadsheet.worksheet("Opsummering")
+            
+            # Da 'Opsummering' kan have tomme celler i toppen eller være asymmetrisk,
+            # henter vi værdierne for hele kolonne N direkte
+            all_cols = worksheet.get_all_values()
+            
+            # Find indeks for kolonne N (14. kolonne)
+            col_n_index = 13  # 0-baseret indeks for kolonne 14
+            
+            tickers = []
+            for row in all_cols[1:]:  # Spring headeren over
+                if len(row) > col_n_index:
+                    ticker = row[col_n_index].strip()
+                    # Ignorer tomme celler, overskrifter eller forklarende tekst
+                    if ticker and len(ticker) < 15 and "/" not in ticker and "Huller" not in ticker:
+                        # Rengør tickeren (f.eks. store bogstaver)
+                        tickers.append(ticker.upper())
+            
+            return list(set(tickers)) # Returner unikke tickers
+        except Exception as e:
+            raise RuntimeError(f"Fejl under behandling af 'Opsummering' (Watchlist): {str(e)}")
+
+
+# =====================================================================
+#  PORTFOLIO MANAGER AGENT
 # =====================================================================
 class PortfolioManagerAgent:
     """
-    Analyserer afvigelsen mellem nuværende vægtning og målvægtning.
-    Identificerer den mest undervægtede 'kasse' til nattens søgefokus.
+    Analyserer afvigelsen mellem nuværende vægtning (fra Google Sheets) 
+    og målvægtning (fra din model).
     """
     def __init__(self, current: dict, target: dict):
         self.current = current
@@ -76,12 +164,12 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  AGENT 2: SCREENER & COMPLIANCE AGENT (SHARIA & GÆLD)
+#  SCREENER & COMPLIANCE AGENT
 # =====================================================================
 class ScreenerComplianceAgent:
     """
-    Screener finansielle metrics og udelukker selskaber baseret på Sharia-
-    og gældsregler (Debt/Equity eller Debt/MarketCap < 30%).
+    Validerer selskaber mod Sharia- og gældsregler (Gæld/Egenkapital eller Gæld/MarketCap < 30%).
+    Mapper også dynamisk Watchlist-kandidater til de rigtige portefølje-kasser.
     """
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
     PROHIBITED_INDUSTRIES = [
@@ -92,13 +180,38 @@ class ScreenerComplianceAgent:
     def __init__(self, tickers: list):
         self.tickers = tickers
 
+    def map_to_category(self, symbol: str, sector: str, industry: str) -> str:
+        """
+        Mapper automatisk en aktie til din Excel-datastrukturs kasser baseret på sektordata.
+        """
+        symbol_upper = symbol.upper()
+        sector_lower = sector.lower() if sector else ""
+        industry_lower = industry.lower() if industry else ""
+
+        # Særlige hårde mappings
+        if symbol_upper in ["WPM", "NEM", "GOLD", "AEM"]:
+            return "Råvarer"
+        if symbol_upper in ["IGDA.L", "SPSK", "HLAL"]:
+            return "ETFer & Sukuk"
+
+        if "technology" in sector_lower or "software" in industry_lower:
+            return "Tech & B2B Software"
+        elif "healthcare" in sector_lower or "defensive" in sector_lower or "medical" in industry_lower:
+            return "Defensivt Forbrug & Healthcare"
+        elif "industrial" in sector_lower or "utilities" in sector_lower or "energy" in sector_lower:
+            return "Infrastruktur & Grøn Omstilling"
+        elif "materials" in sector_lower:
+            return "Råvarer"
+            
+        return "Infrastruktur & Grøn Omstilling"  # Standard fallback
+
     def screen_ticker(self, symbol: str) -> dict:
         try:
             ticker_obj = yf.Ticker(symbol)
             info = ticker_obj.info
             
             if not info:
-                return {"symbol": symbol, "passed": False, "reason": "Ingen data fundet via yfinance"}
+                return {"symbol": symbol, "passed": False, "reason": "Ingen data fundet på yfinance"}
 
             # 1. Sharia Branche-screening
             sector = info.get("sector", "")
@@ -112,7 +225,7 @@ class ScreenerComplianceAgent:
                 if p_ind.lower() in industry.lower():
                     return {"symbol": symbol, "passed": False, "reason": f"Ikke-tilladt branche: {industry}"}
 
-            # 2. Gældsscreening (Debt/Equity eller Debt/MarketCap)
+            # 2. Gældsscreening
             debt_to_equity = info.get("debtToEquity")
             total_debt = info.get("totalDebt")
             market_cap = info.get("marketCap")
@@ -128,7 +241,7 @@ class ScreenerComplianceAgent:
                 method_used = "Debt to Market Cap"
 
             if debt_ratio_pct is None:
-                return {"symbol": symbol, "passed": False, "reason": "Kunne ikke beregne gældskvoten (mangler data)"}
+                return {"symbol": symbol, "passed": False, "reason": "Kunne ikke beregne gældskvotient"}
 
             if debt_ratio_pct > 30.0:
                 return {
@@ -136,6 +249,8 @@ class ScreenerComplianceAgent:
                     "passed": False, 
                     "reason": f"Gældskvoten ({debt_ratio_pct:.2f}%) overskrider grænsen på 30% ({method_used})"
                 }
+
+            mapped_cat = self.map_to_category(symbol, sector, industry)
 
             return {
                 "symbol": symbol,
@@ -145,28 +260,32 @@ class ScreenerComplianceAgent:
                 "debt_ratio": f"{debt_ratio_pct:.2f}% ({method_used})",
                 "sector": sector,
                 "industry": industry,
-                "currency": info.get("currency", "N/A")
+                "category": mapped_cat
             }
 
         except Exception as e:
-            return {"symbol": symbol, "passed": False, "reason": f"Fejl under screening: {str(e)}"}
+            return {"symbol": symbol, "passed": False, "reason": f"Systemfejl under screening: {str(e)}"}
 
-    def run_screening(self) -> list:
+    def run_screening(self, target_category: str) -> list:
+        """
+        Screener alle kandidater fra din Watchlist, og returnerer dem, 
+        der både overholder kravene og passer ind i nattens fokus-kasse.
+        """
         approved_stocks = []
         for ticker in self.tickers:
-            time.sleep(1.5)  # Pause for at undgå IP-blokering
+            time.sleep(1.5)
             result = self.screen_ticker(ticker)
-            if result["passed"]:
+            if result["passed"] and result["category"] == target_category:
                 approved_stocks.append(result)
         return approved_stocks
 
 
 # =====================================================================
-#  AGENT 3: FUNDAMENTAL AGENT (NYHEDS-SCRAPING VIA YFINANCE)
+#  FUNDAMENTAL AGENT
 # =====================================================================
 class FundamentalAgent:
     """
-    Trækker de 3 seneste nyheder for at give et øjebliksbillede af selskabets situation.
+    Henter de seneste tre nyheder for det screenede selskab.
     """
     @staticmethod
     def get_latest_news(symbol: str) -> list:
@@ -182,53 +301,50 @@ class FundamentalAgent:
                 return headlines
             return ["Ingen nyheder fundet for nylig."]
         except Exception:
-            return ["Fejl under hentning af nyheder."]
+            return ["Kunne ikke hente nyheder."]
 
 
 # =====================================================================
-#  NY AGENT: COUNCIL AGENT (INTERN BEMANDET AF DE 5 ROLLER VIA GEMINI API)
+#  COUNCIL AGENT (GEMINI INTEGRATION)
 # =====================================================================
 class CouncilAgent:
     """
-    Sender det godkendte selskab og dets fundamentale data igennem en 
-    femmands-konference via Google Gemini API med anonym peer-review.
+    Opretter forbindelse til Google Gemini API (gemini-1.5-flash / gemini-2.5-flash)
+    og genererer en dybdegående 5-personers rådsevaluering.
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
-        # Vi anvender den gratis og hurtige gemini-1.5-flash model via standard REST API
+        # Vi anvender standarden gemini-1.5-flash, der er hurtig og gratis under AI Studio grænserne
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
 
     def run_council(self, stock_info: dict, category: str, deficit: float, news: list) -> str:
         news_str = "\n".join(news)
         
-        # Kontekst-konstruktion
         context = f"""
-        CONTEXT FOR THE EVALUATION:
-        - Target Stock: {stock_info.get('name')} ({stock_info.get('symbol')})
-        - Sector / Industry: {stock_info.get('sector')} / {stock_info.get('industry')}
-        - P/E Ratio: {stock_info.get('pe_ratio')}
-        - Debt Ratio: {stock_info.get('debt_ratio')}
-        - Portfolio Category: {category}
-        - Current Portfolio Deficit in this Category: {deficit:.2f}%
-        - Latest News Headlines:
+        PROJEKT CONTEXT:
+        - Aktiv til evaluering: {stock_info.get('name')} ({stock_info.get('symbol')})
+        - Branche/Sektor: {stock_info.get('sector')} / {stock_info.get('industry')}
+        - P/E Nøgletal: {stock_info.get('pe_ratio')}
+        - Gældskvotient: {stock_info.get('debt_ratio')}
+        - Porteføljekasse: {category}
+        - Aktuel underallokering i dit Google Sheet: {deficit:.2f}%
+        - Seneste nyheder:
         {news_str}
         
-        The user is a long-term, Muslim investor in the Nordics.
-        We are deciding whether to allocate capital to this specific stock to help balance the portfolio.
+        Du rådgiver en langsigtet muslimsk investor i Norden, der følger en striks Sharia- og gældsdisciplin (<30% gæld).
         """
 
-        # System-instruktion og 3-trins processen
         prompt = f"""
         {context}
         
         I want you to act as a five-person decision council. Do not skip steps. Do not blend the advisers together. Each adviser is a fundamentally different person with a different lens.
         
-        Please formulate the responses in Danish, but keep the original tone and structure of the roles.
+        Respond entirely in Danish.
         
         STEP 1 — Each adviser answers separately.
         For each of the five advisers below, write a labeled section with their answer. Stay in character. Different language, different priorities, different blind spots.
         
-        Adviser 1 — THE CONTRARIAN. Looks only for what will fail. Does not balance. Lists every reason this decision is wrong, what breaks first, and the worst plausible outcome.
+        Adviser 1 — THE CONTRARIAN. Looks only for what will fail. Does not balance. Lists every reason this investment is wrong, what breaks first, and the worst plausible outcome.
         
         Adviser 2 — THE FIRST-PRINCIPLES THINKER. Rips apart my assumptions. Asks what I would do if I couldn't use any obvious framework. Strips the problem down to fundamentals and rebuilds.
         
@@ -263,35 +379,30 @@ class CouncilAgent:
             response.raise_for_status()
             data = response.json()
             
-            # Parsing af svarmateriale fra Gemini
             if 'candidates' in data and len(data['candidates']) > 0:
                 parts = data['candidates'][0]['content']['parts']
                 if len(parts) > 0:
                     return parts[0]['text']
             
-            return "### 🗳️ LLM Council Evaluering\n*Kunne ikke generere rådets evaluering pga. uventet svarformat fra API.*"
+            return "Fejl: Kunne ikke parse rådets svar korrekt."
         except Exception as e:
-            return f"### 🗳️ LLM Council Evaluering\n*Kunne ikke generere rådets evaluering pga. systemfejl:* {str(e)}"
+            return f"Fejl under generering af LLM Council: {str(e)}"
 
 
 # =====================================================================
-#  AGENT 4: DOSSIER GENERATOR
+#  DOSSIER GENERATOR & DELIVERY
 # =====================================================================
 class DossierGenerator:
-    """
-    Samler alle data og udarbejder en overskuelig Markdown-rapport.
-    """
     @staticmethod
     def generate_report(focus_category: str, deficit: float, approved_data: list, council_report: str = None) -> str:
         report = []
         report.append(f"# Investeringsdossier: LLM Council\n")
-        report.append(f"**Analysefokus:** {focus_category} (Identificeret som mest undervægtet med et underskud på **{deficit:.2f}%** i forhold til dit målbillede).\n")
-        report.append(f"**Status:** Screeningen er gennemført uden fejl. Nedenfor ses de godkendte selskaber, der opfylder dine Sharia- og gældskrav.\n")
+        report.append(f"**Analysefokus:** {focus_category} (Dynamisk identificeret via Google Sheets med et underskud på **{deficit:.2f}%**).\n")
         report.append("---")
 
         if not approved_data:
-            report.append(f"\n### Ingen kandidater godkendt i denne kørsel.")
-            report.append(f"De screenede kandidater i kategorien '{focus_category}' blev udelukket på grund af enten overtrædelse af gældsgrænsen (30%), brancherestriktioner eller manglende data.")
+            report.append(f"\n### Ingen godkendte Watchlist-aktiver fundet i dag.")
+            report.append(f"De screenede kandidater fra din fane 'Opsummering' (Kolonne N) passede enten ikke ind i kassen '{focus_category}', eller overholdt ikke dine Sharia- og gældskrav.")
             return "\n".join(report)
 
         for stock in approved_data:
@@ -301,22 +412,17 @@ class DossierGenerator:
             report.append(f"- **P/E Ratio:** {stock['pe_ratio']}")
             report.append(f"- **Gældsratio:** {stock['debt_ratio']}")
             
-            # Portefølje-Fit Sektion
-            report.append(f"\n### Portefølje-Fit")
+            report.append(f"\n### Portefølje-Fit (Excel-integration)")
             report.append(
-                f"Selskabet integreres i kategorien **{focus_category}**. "
-                f"Gennemførelsen af screeningen bekræfter, at selskabet overholder din gældsgrænse på højst 30% "
-                f"og ikke opererer inden for udelukkede forretningsområder. "
-                f"Køb af denne aktie vil bidrage til at reducere din nuværende underallokering på {deficit:.2f}% i denne specifikke del af din Excel-strategi."
+                f"Selskabet matcher din kasse **{focus_category}**. "
+                f"Aktien vil bidrage til at dække din aktuelle underallokering på {deficit:.2f}% registreret i din fane 'Beholdninger'."
             )
             
-            # Nyheder
             report.append(f"\n### Seneste Nyhedsoverskrifter")
             news_items = FundamentalAgent.get_latest_news(symbol)
             for item in news_items:
                 report.append(item)
             
-            # Indsæt LLM Council Evaluering hvis den er genereret
             if council_report:
                 report.append(f"\n\n## 🗳️ LLM Council Beslutningsrapport")
                 report.append(council_report)
@@ -326,17 +432,10 @@ class DossierGenerator:
         return "\n".join(report)
 
 
-# =====================================================================
-#  AGENT 5: DELIVERY AGENT (SMTP NOTIFIKATION)
-# =====================================================================
 class DeliveryAgent:
-    """
-    Afsender e-mailrapporter. Sender fejl-logs i tilfælde af systemnedbrud.
-    """
     @staticmethod
     def send_email(subject: str, content: str):
         if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
-            print("E-mail konfiguration mangler i miljøvariabler. Springer afsendelse over.")
             print(f"--- {subject} ---")
             print(content)
             return
@@ -345,7 +444,6 @@ class DeliveryAgent:
         msg["From"] = EMAIL_SENDER
         msg["To"] = EMAIL_RECEIVER
         msg["Subject"] = subject
-
         msg.attach(MIMEText(content, "plain", "utf-8"))
 
         try:
@@ -354,60 +452,65 @@ class DeliveryAgent:
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
             server.quit()
-            print("E-mail afsendt med succes.")
+            print("Rapport sendt pr. e-mail.")
         except Exception as e:
-            print(f"Kunne ikke sende e-mail: {str(e)}")
+            print(f"E-mail fejl: {str(e)}")
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW
+#  HOVEDKØRSEL (ORCHESTRATOR)
 # =====================================================================
 def main():
     try:
-        print("Initialiserer LLM Council...")
+        print("Henter data fra dit Google Sheet...")
         
-        # 1. Analysér porteføljebalancen
-        pm = PortfolioManagerAgent(CURRENT_PORTFOLIO, TARGET_PORTFOLIO)
+        # 1. Forbind til Google Sheets og læs data
+        sheets_agent = GoogleSheetsAgent(GOOGLE_SHEETS_CREDENTIALS, GOOGLE_SHEET_ID)
+        sheets_agent.connect()
+        
+        # Udregn dynamiske vægte fra fanen 'Beholdninger'
+        current_portfolio_weights = sheets_agent.get_current_weights()
+        print(f"Aktuelle vægte beregnet: {current_portfolio_weights}")
+        
+        # Hent Watchlist-tickers fra 'Opsummering' (Kolonne N)
+        watchlist_tickers = sheets_agent.get_watchlist_tickers()
+        print(f"Watchlist-kandidater fundet: {watchlist_tickers}")
+
+        # 2. Find mest undervægtede kategori
+        pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
-        print(f"Fokuskategori fundet: {focus_category} (Mangler: {deficit:.2f}%)")
+        print(f"Fokus i nat: {focus_category} (Underskud: {deficit:.2f}%)")
 
-        # 2. Find og screen kandidater for fokuskategorien
-        candidates = CANDIDATE_POOL.get(focus_category, [])
-        if not candidates:
-            raise ValueError(f"Ingen kandidater fundet i konfigurationen for kategorien: {focus_category}")
-            
-        print(f"Screener kandidater: {candidates}")
-        screener = ScreenerComplianceAgent(candidates)
-        approved_stocks = screener.run_screening()
+        # 3. Kør screener på alle Watchlist-tickers
+        print("Screener kandidater mod Sharia- og gældsregler...")
+        screener = ScreenerComplianceAgent(watchlist_tickers)
+        approved_stocks = screener.run_screening(focus_category)
         
-        # 3. Kør LLM Council hvis der findes godkendte selskaber og vi har en API-nøgle
+        # 4. Kør LLM Council på den øverste godkendte aktie
         council_report = None
-        if approved_stocks:
-            top_stock = approved_stocks[0]  # Vi tager den højest prioriterede godkendte aktie
-            news_headlines = FundamentalAgent.get_latest_news(top_stock["symbol"])
+        if approved_stocks and GEMINI_API_KEY:
+            target_stock = approved_stocks[0]
+            print(f"Starter LLM Council på: {target_stock['symbol']}...")
             
-            if GEMINI_API_KEY:
-                print(f"Genererer LLM Council evaluering for {top_stock['symbol']}...")
-                council_agent = CouncilAgent(GEMINI_API_KEY)
-                council_report = council_agent.run_council(
-                    stock_info=top_stock, 
-                    category=focus_category, 
-                    deficit=deficit, 
-                    news=news_headlines
-                )
-            else:
-                print("Advarsel: GEMINI_API_KEY mangler. Springer Council over.")
-                council_report = "\n*LLM Council evaluering sprang over, da der ikke blev fundet en GEMINI_API_KEY i miljøvariablerne.*"
+            news = FundamentalAgent.get_latest_news(target_stock["symbol"])
+            council_agent = CouncilAgent(GEMINI_API_KEY)
+            
+            council_report = council_agent.run_council(
+                stock_info=target_stock,
+                category=focus_category,
+                deficit=deficit,
+                news=news
+            )
+        elif not GEMINI_API_KEY:
+            print("GEMINI_API_KEY mangler. Springer over LLM Council.")
 
-        # 4. Generer samlet rapport
+        # 5. Generer og afsend rapport
         report_md = DossierGenerator.generate_report(focus_category, deficit, approved_stocks, council_report)
-
-        # 5. Levering af succesrapport
-        subject = f"[LLM Council] Investeringsdossier - Fokus på {focus_category}"
+        subject = f"[LLM Council] Strategisk Rapport - Fokus: {focus_category}"
         DeliveryAgent.send_email(subject, report_md)
 
     except Exception as e:
-        error_msg = f"Der opstod en fejl under kørslen af LLM Council:\n\n{traceback.format_exc()}"
+        error_msg = f"Der opstod en systemfejl i LLM Council-workflowet:\n\n{traceback.format_exc()}"
         print(error_msg, file=sys.stderr)
         DeliveryAgent.send_email("[System Error] LLM Council fejlede", error_msg)
 
