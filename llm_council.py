@@ -8,6 +8,18 @@ import traceback
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+# ---------------------------------------------------------------------
+#  SIKKERHEDSNET: Automatisk installation af openpyxl, hvis det mangler
+# ---------------------------------------------------------------------
+try:
+    import openpyxl
+except ImportError:
+    import subprocess
+    print("Sikkerhedsnet: openpyxl mangler i dit miljø. Installerer automatisk via pip...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+    import openpyxl
+
 import yfinance as yf
 import requests
 import pandas as pd
@@ -16,7 +28,6 @@ import pandas as pd
 #  KONFIGURATION OG MILJØVARIABLER
 # =====================================================================
 
-# Strategiske målvægte for dine kasser i dit Excel-styringsark
 TARGET_PORTFOLIO = {
     "Tech & B2B Software": 20.0,
     "Defensivt Forbrug & Healthcare": 20.0,
@@ -25,18 +36,26 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Hent ID og API-nøgler fra GitHub Secrets
-# Standard-ID er sat til dit delte link: 1EnE2XkQySaGsdaxR5KySZZ924LT66ICo
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
+# Hent Google Sheet ID
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
+if not GOOGLE_SHEET_ID or GOOGLE_SHEET_ID.strip() == "":
+    GOOGLE_SHEET_ID = "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo"
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-# Dine e-mailindstillinger (Hentes fra Secrets, hvis de findes, ellers bruges dine standardadresser)
-EMAIL_SENDER = os.getenv("EMAIL_SENDER", "wazir.ilyas@gmail.com")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD") # Skal fortsat ligge sikkert som en GitHub Secret
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "addoncreatives@gmail.com")
+# Sikkerhedsnet mod tomme strenge sendt af GitHub Actions
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+if not EMAIL_SENDER or EMAIL_SENDER.strip() == "":
+    EMAIL_SENDER = "wazir.ilyas@gmail.com"
+
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
+if not EMAIL_RECEIVER or EMAIL_RECEIVER.strip() == "":
+    EMAIL_RECEIVER = "addoncreatives@gmail.com"
+
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 # =====================================================================
@@ -55,13 +74,11 @@ class GoogleSheetsAgent:
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
-            # Indlæser fanen ved hjælp af openpyxl
             df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
             return df
         except Exception as e:
             raise RuntimeError(
-                f"Kunne ikke indlæse fanen '{tab_name}' fra dit Google Sheet link. "
-                f"Er delingsindstillingerne sat til 'Alle med linket kan se'? Fejl: {str(e)}"
+                f"Kunne ikke indlæse fanen '{tab_name}' fra dit Google Sheet link. Fejl: {str(e)}"
             )
 
     def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
@@ -69,12 +86,10 @@ class GoogleSheetsAgent:
         Søger ned gennem de første rækker for at finde den rigtige header,
         hvis der er tomme rækker eller titelfelter i toppen af dit Excel-ark.
         """
-        # Hvis søgeordet allerede findes i de indlæste kolonner, returneres df direkte
         for col in df.columns:
             if key_header_word.lower() in str(col).lower():
                 return df
                 
-        # Ellers søger vi i de første 10 rækker for at finde header-rækken
         for idx, row in df.head(10).iterrows():
             row_values = [str(val).lower() for val in row.values]
             if any(key_header_word.lower() in val for val in row_values):
@@ -102,8 +117,7 @@ class GoogleSheetsAgent:
 
         if not drivkraft_col or not weight_col:
             raise KeyError(
-                f"Kunne ikke finde kolonnerne 'Drivkraft' og 'Porteføljevægt' i 'Beholdninger'. "
-                f"Tjek om de er stavet korrekt i dit ark."
+                f"Kunne ikke finde kolonnerne 'Drivkraft' og 'Porteføljevægt' i 'Beholdninger'."
             )
 
         def clean_weight(val):
@@ -144,7 +158,6 @@ class GoogleSheetsAgent:
         if watchlist_col:
             raw_series = df[watchlist_col]
         else:
-            # Falder tilbage til kolonne index 13 (kolonne N) hvis ingen kolonnenavne matcher
             if len(df.columns) >= 14:
                 raw_series = df.iloc[:, 13]
             else:
@@ -154,7 +167,6 @@ class GoogleSheetsAgent:
             if pd.isna(val):
                 continue
             val_str = str(val).strip().upper()
-            # Tjekker om værdien ligner en legitim børsticker (ingen lange tekster, kun bogstaver, tal, . og -)
             if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
                 if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
                     tickers.append(val_str)
@@ -432,8 +444,8 @@ class DossierGenerator:
 class DeliveryAgent:
     @staticmethod
     def send_email(subject: str, content: str):
-        if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
-            print("E-mail konfiguration mangler eller er ufuldstændig i GitHub Secrets. Udskriver rapporten her:")
+        if not EMAIL_PASSWORD or EMAIL_PASSWORD.strip() == "":
+            print("E-mail adgangskode (EMAIL_PASSWORD) mangler i GitHub Secrets. Udskriver rapporten her:")
             print(f"\n=== {subject} ===\n")
             print(content)
             return
