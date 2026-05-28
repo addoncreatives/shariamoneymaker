@@ -1,11 +1,13 @@
 import os
 import sys
 import time
+import json
 import traceback
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import yfinance as yf
+import requests
 
 # =====================================================================
 #  KONFIGURATION OG BRUGERDATA (HER EDITERER DU DIN EXCEL-BALANCE)
@@ -38,7 +40,8 @@ CANDIDATE_POOL = {
     "ETFer & Sukuk": ["IGDA.L", "SPSK", "HLAL"]
 }
 
-# SMTP-indstillinger til e-mailnotifikation (Hentes fra GitHub Secrets)
+# Hent API-nøgler og SMTP-indstillinger fra miljøvariabler (GitHub Secrets)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
@@ -90,9 +93,6 @@ class ScreenerComplianceAgent:
         self.tickers = tickers
 
     def screen_ticker(self, symbol: str) -> dict:
-        """
-        Screener en enkelt ticker for gæld og ikke-tilladte brancher.
-        """
         try:
             ticker_obj = yf.Ticker(symbol)
             info = ticker_obj.info
@@ -113,8 +113,6 @@ class ScreenerComplianceAgent:
                     return {"symbol": symbol, "passed": False, "reason": f"Ikke-tilladt branche: {industry}"}
 
             # 2. Gældsscreening (Debt/Equity eller Debt/MarketCap)
-            # yfinance returnerer ofte debtToEquity som procent (fx 25.5 for 25.5%). 
-            # Vi konfigurerer grænsen til <= 30%.
             debt_to_equity = info.get("debtToEquity")
             total_debt = info.get("totalDebt")
             market_cap = info.get("marketCap")
@@ -123,16 +121,13 @@ class ScreenerComplianceAgent:
             method_used = ""
 
             if debt_to_equity is not None:
-                # Debt/Equity er direkte tilgængelig
                 debt_ratio_pct = debt_to_equity
                 method_used = "Debt to Equity"
             elif total_debt and market_cap:
-                # Alternativ beregning: Gæld-til-markedsværdi
                 debt_ratio_pct = (total_debt / market_cap) * 100
                 method_used = "Debt to Market Cap"
 
             if debt_ratio_pct is None:
-                # Konservativ tilgang: Kan vi ikke beregne gælden, fejler selskabet screeningen af sikkerhedshensyn
                 return {"symbol": symbol, "passed": False, "reason": "Kunne ikke beregne gældskvoten (mangler data)"}
 
             if debt_ratio_pct > 30.0:
@@ -142,7 +137,6 @@ class ScreenerComplianceAgent:
                     "reason": f"Gældskvoten ({debt_ratio_pct:.2f}%) overskrider grænsen på 30% ({method_used})"
                 }
 
-            # Godkendt
             return {
                 "symbol": symbol,
                 "passed": True,
@@ -160,8 +154,7 @@ class ScreenerComplianceAgent:
     def run_screening(self) -> list:
         approved_stocks = []
         for ticker in self.tickers:
-            # Respekter yfinance hastighedsbegrænsninger med en lille pause
-            time.sleep(1.5)
+            time.sleep(1.5)  # Pause for at undgå IP-blokering
             result = self.screen_ticker(ticker)
             if result["passed"]:
                 approved_stocks.append(result)
@@ -193,6 +186,95 @@ class FundamentalAgent:
 
 
 # =====================================================================
+#  NY AGENT: COUNCIL AGENT (INTERN BEMANDET AF DE 5 ROLLER VIA GEMINI API)
+# =====================================================================
+class CouncilAgent:
+    """
+    Sender det godkendte selskab og dets fundamentale data igennem en 
+    femmands-konference via Google Gemini API med anonym peer-review.
+    """
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        # Vi anvender den gratis og hurtige gemini-1.5-flash model via standard REST API
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
+
+    def run_council(self, stock_info: dict, category: str, deficit: float, news: list) -> str:
+        news_str = "\n".join(news)
+        
+        # Kontekst-konstruktion
+        context = f"""
+        CONTEXT FOR THE EVALUATION:
+        - Target Stock: {stock_info.get('name')} ({stock_info.get('symbol')})
+        - Sector / Industry: {stock_info.get('sector')} / {stock_info.get('industry')}
+        - P/E Ratio: {stock_info.get('pe_ratio')}
+        - Debt Ratio: {stock_info.get('debt_ratio')}
+        - Portfolio Category: {category}
+        - Current Portfolio Deficit in this Category: {deficit:.2f}%
+        - Latest News Headlines:
+        {news_str}
+        
+        The user is a long-term, Muslim investor in the Nordics.
+        We are deciding whether to allocate capital to this specific stock to help balance the portfolio.
+        """
+
+        # System-instruktion og 3-trins processen
+        prompt = f"""
+        {context}
+        
+        I want you to act as a five-person decision council. Do not skip steps. Do not blend the advisers together. Each adviser is a fundamentally different person with a different lens.
+        
+        Please formulate the responses in Danish, but keep the original tone and structure of the roles.
+        
+        STEP 1 — Each adviser answers separately.
+        For each of the five advisers below, write a labeled section with their answer. Stay in character. Different language, different priorities, different blind spots.
+        
+        Adviser 1 — THE CONTRARIAN. Looks only for what will fail. Does not balance. Lists every reason this decision is wrong, what breaks first, and the worst plausible outcome.
+        
+        Adviser 2 — THE FIRST-PRINCIPLES THINKER. Rips apart my assumptions. Asks what I would do if I couldn't use any obvious framework. Strips the problem down to fundamentals and rebuilds.
+        
+        Adviser 3 — THE EXPANSIONIST. Finds the upside I'm missing. Looks at the asymmetric outcome if this works. What does the bigger version of this open up?
+        
+        Adviser 4 — THE OUTSIDER. Knows nothing about my industry. Asks the dumb questions only an outsider asks. Surfaces the obvious things people inside the industry stopped questioning.
+        
+        Adviser 5 — THE EXECUTOR. Doesn't care about strategy. Cares about Monday morning. Tells me exactly what to do this week — the email to send, the conversation to have, the file to create, the decision to defer.
+        
+        STEP 2 — Anonymous peer review.
+        Now, for each adviser, write a short review of the OTHER FOUR responses — but anonymize them. Refer to them only as "Response A," "Response B," etc. Do not let an adviser know which response is which. Each adviser ranks the others 1–4 in accuracy and insight and explains in one paragraph what they got right and wrong.
+        
+        STEP 3 — The Chairman's final call.
+        Finally, act as the Chairman. You have read all five original answers and all five anonymous reviews. Synthesize a single clear recommendation. No hedging. No "both sides." Tell me:
+        - What the right decision actually is
+        - The one strongest reason for it
+        - The one biggest risk to watch for
+        - The specific next step I should take in the next 7 days
+        """
+
+        headers = {'Content-Type': 'application/json'}
+        payload = {
+            "contents": [
+                {
+                    "parts": [{"text": prompt}]
+                }
+            ]
+        }
+        
+        try:
+            response = requests.post(self.url, headers=headers, json=payload, timeout=45)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Parsing af svarmateriale fra Gemini
+            if 'candidates' in data and len(data['candidates']) > 0:
+                parts = data['candidates'][0]['content']['parts']
+                if len(parts) > 0:
+                    return parts[0]['text']
+            
+            return "### 🗳️ LLM Council Evaluering\n*Kunne ikke generere rådets evaluering pga. uventet svarformat fra API.*"
+        except Exception as e:
+            return f"### 🗳️ LLM Council Evaluering\n*Kunne ikke generere rådets evaluering pga. systemfejl:* {str(e)}"
+
+
+# =====================================================================
 #  AGENT 4: DOSSIER GENERATOR
 # =====================================================================
 class DossierGenerator:
@@ -200,7 +282,7 @@ class DossierGenerator:
     Samler alle data og udarbejder en overskuelig Markdown-rapport.
     """
     @staticmethod
-    def generate_report(focus_category: str, deficit: float, approved_data: list) -> str:
+    def generate_report(focus_category: str, deficit: float, approved_data: list, council_report: str = None) -> str:
         report = []
         report.append(f"# Investeringsdossier: LLM Council\n")
         report.append(f"**Analysefokus:** {focus_category} (Identificeret som mest undervægtet med et underskud på **{deficit:.2f}%** i forhold til dit målbillede).\n")
@@ -228,11 +310,16 @@ class DossierGenerator:
                 f"Køb af denne aktie vil bidrage til at reducere din nuværende underallokering på {deficit:.2f}% i denne specifikke del af din Excel-strategi."
             )
             
-            # Seneste nyheder
+            # Nyheder
             report.append(f"\n### Seneste Nyhedsoverskrifter")
             news_items = FundamentalAgent.get_latest_news(symbol)
             for item in news_items:
                 report.append(item)
+            
+            # Indsæt LLM Council Evaluering hvis den er genereret
+            if council_report:
+                report.append(f"\n\n## 🗳️ LLM Council Beslutningsrapport")
+                report.append(council_report)
                 
             report.append("\n" + "-"*40)
 
@@ -292,17 +379,34 @@ def main():
         print(f"Screener kandidater: {candidates}")
         screener = ScreenerComplianceAgent(candidates)
         approved_stocks = screener.run_screening()
-        print(f"Screening fuldført. Godkendt: {[s['symbol'] for s in approved_stocks]}")
+        
+        # 3. Kør LLM Council hvis der findes godkendte selskaber og vi har en API-nøgle
+        council_report = None
+        if approved_stocks:
+            top_stock = approved_stocks[0]  # Vi tager den højest prioriterede godkendte aktie
+            news_headlines = FundamentalAgent.get_latest_news(top_stock["symbol"])
+            
+            if GEMINI_API_KEY:
+                print(f"Genererer LLM Council evaluering for {top_stock['symbol']}...")
+                council_agent = CouncilAgent(GEMINI_API_KEY)
+                council_report = council_agent.run_council(
+                    stock_info=top_stock, 
+                    category=focus_category, 
+                    deficit=deficit, 
+                    news=news_headlines
+                )
+            else:
+                print("Advarsel: GEMINI_API_KEY mangler. Springer Council over.")
+                council_report = "\n*LLM Council evaluering sprang over, da der ikke blev fundet en GEMINI_API_KEY i miljøvariablerne.*"
 
-        # 3. Generer rapport
-        report_md = DossierGenerator.generate_report(focus_category, deficit, approved_stocks)
+        # 4. Generer samlet rapport
+        report_md = DossierGenerator.generate_report(focus_category, deficit, approved_stocks, council_report)
 
-        # 4. Levering af succesrapport
+        # 5. Levering af succesrapport
         subject = f"[LLM Council] Investeringsdossier - Fokus på {focus_category}"
         DeliveryAgent.send_email(subject, report_md)
 
     except Exception as e:
-        # Fejlhåndtering: Hvis noget fejler (f.eks. IP-blokering eller manglende internet), sendes fejl-loggen
         error_msg = f"Der opstod en fejl under kørslen af LLM Council:\n\n{traceback.format_exc()}"
         print(error_msg, file=sys.stderr)
         DeliveryAgent.send_email("[System Error] LLM Council fejlede", error_msg)
