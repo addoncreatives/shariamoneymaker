@@ -16,6 +16,7 @@ import pandas as pd
 #  KONFIGURATION OG MILJØVARIABLER
 # =====================================================================
 
+# Strategiske målvægte for dine kasser i dit Excel-styringsark
 TARGET_PORTFOLIO = {
     "Tech & B2B Software": 20.0,
     "Defensivt Forbrug & Healthcare": 20.0,
@@ -24,15 +25,18 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Dit unikke Google Sheet ID hentes fra hemmeligheder eller falder tilbage til dit link
+# Hent ID og API-nøgler fra GitHub Secrets
+# Standard-ID er sat til dit delte link: 1EnE2XkQySaGsdaxR5KySZZ924LT66ICo
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-EMAIL_SENDER = os.getenv("EMAIL_SENDER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
+
+# Dine e-mailindstillinger (Hentes fra Secrets, hvis de findes, ellers bruges dine standardadresser)
+EMAIL_SENDER = os.getenv("EMAIL_SENDER", "wazir.ilyas@gmail.com")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD") # Skal fortsat ligge sikkert som en GitHub Secret
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "addoncreatives@gmail.com")
 
 
 # =====================================================================
@@ -40,19 +44,18 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 # =====================================================================
 class GoogleSheetsAgent:
     """
-    Downloader hele dit Google Sheet / Excel-ark som en .xlsx-fil i hukommelsen.
+    Downloader hele dit Google Sheet / Excel-ark som en .xlsx-fil direkte i hukommelsen.
     Dette sikrer, at vi kan tilgå fanerne fejlfrit uanset filtype.
     """
     def __init__(self, sheet_id: str):
         self.sheet_id = sheet_id
 
     def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
-        # Hent hele projektmappen som en Excel-fil
         url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=xlsx"
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
-            # Indlæs den specifikke fane via openpyxl
+            # Indlæser fanen ved hjælp af openpyxl
             df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
             return df
         except Exception as e:
@@ -66,12 +69,12 @@ class GoogleSheetsAgent:
         Søger ned gennem de første rækker for at finde den rigtige header,
         hvis der er tomme rækker eller titelfelter i toppen af dit Excel-ark.
         """
-        # Hvis søgeordet allerede er i kolonnerne, er alt i orden
+        # Hvis søgeordet allerede findes i de indlæste kolonner, returneres df direkte
         for col in df.columns:
             if key_header_word.lower() in str(col).lower():
                 return df
                 
-        # Ellers søg i de første 10 rækker for at finde header-rækken
+        # Ellers søger vi i de første 10 rækker for at finde header-rækken
         for idx, row in df.head(10).iterrows():
             row_values = [str(val).lower() for val in row.values]
             if any(key_header_word.lower() in val for val in row_values):
@@ -89,7 +92,7 @@ class GoogleSheetsAgent:
 
     def get_current_weights(self) -> dict:
         """
-        Læser fanen 'Beholdninger', finder vægtkolonnerne og grupperer efter drivkraft.
+        Læser fanen 'Beholdninger', identificerer vægtkolonnerne og grupperer efter drivkraft.
         """
         raw_df = self._read_tab_as_df("Beholdninger")
         df = self._clean_and_align_df(raw_df, "drivkraft")
@@ -100,7 +103,7 @@ class GoogleSheetsAgent:
         if not drivkraft_col or not weight_col:
             raise KeyError(
                 f"Kunne ikke finde kolonnerne 'Drivkraft' og 'Porteføljevægt' i 'Beholdninger'. "
-                f"Tjek at de er navngivet korrekt i dit ark."
+                f"Tjek om de er stavet korrekt i dit ark."
             )
 
         def clean_weight(val):
@@ -117,7 +120,7 @@ class GoogleSheetsAgent:
         # Gruppér efter drivkraft
         grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
 
-        # Tilpas til TARGET_PORTFOLIO
+        # Tilpas til TARGET_PORTFOLIO's definerede kategorier
         normalized_portfolio = {}
         for target_key in TARGET_PORTFOLIO.keys():
             sum_val = 0.0
@@ -130,10 +133,9 @@ class GoogleSheetsAgent:
 
     def get_watchlist_tickers(self) -> list:
         """
-        Læser fanen 'Opsummering', finder kolonne N (Huller / Watchlist) og trækker rene tickers ud.
+        Læser fanen 'Opsummering', lokaliserer kolonne N (Huller / Watchlist) og udtager rene tickers.
         """
         raw_df = self._read_tab_as_df("Opsummering")
-        # Juster kolonneoverskrifter baseret på "huller" eller "watchlist"
         df = self._clean_and_align_df(raw_df, "huller")
         
         watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
@@ -142,7 +144,7 @@ class GoogleSheetsAgent:
         if watchlist_col:
             raw_series = df[watchlist_col]
         else:
-            # Hvis vi ikke finder navnet, falder vi tilbage til kolonne 14 (Kolonne N)
+            # Falder tilbage til kolonne index 13 (kolonne N) hvis ingen kolonnenavne matcher
             if len(df.columns) >= 14:
                 raw_series = df.iloc[:, 13]
             else:
@@ -152,9 +154,8 @@ class GoogleSheetsAgent:
             if pd.isna(val):
                 continue
             val_str = str(val).strip().upper()
-            # Valider at det ligner en rigdig ticker (fx ingen sætninger, ingen tegn undtagen . og -)
+            # Tjekker om værdien ligner en legitim børsticker (ingen lange tekster, kun bogstaver, tal, . og -)
             if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
-                # Undgå at vi trækker overskrifter som f.eks. "TICKER" eller "STATUS" ind
                 if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
                     tickers.append(val_str)
 
