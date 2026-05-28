@@ -3,19 +3,19 @@ import sys
 import time
 import json
 import traceback
+import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import yfinance as yf
 import requests
-import gspread
 import pandas as pd
 
 # =====================================================================
 #  KONFIGURATION OG MILJØVARIABLER
 # =====================================================================
 
-# Mål-vægtninger (disse kan du beholde her, eller lade systemet sammenligne med)
+# Mål-vægtninger i din portefølje
 TARGET_PORTFOLIO = {
     "Tech & B2B Software": 20.0,
     "Defensivt Forbrug & Healthcare": 20.0,
@@ -24,9 +24,9 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Hent credentials og API-nøgler fra GitHub Secrets
-GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")  # JSON-streng fra din Google Service-konto
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")                      # ID'et fra dit Google Sheet URL
+# Hent ID og API-nøgler fra GitHub Secrets
+# Dit Sheet ID fra dit link: 1EnE2XkQySaGsdaxR5KySZZ924LT66ICo
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
@@ -37,114 +37,115 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
 
 # =====================================================================
-#  GOOGLE SHEETS INTEGRATION AGENT
+#  GOOGLE SHEETS AGENT (NUL FRIKTION / OFFENTLIG CSV METODE)
 # =====================================================================
 class GoogleSheetsAgent:
     """
-    Forbinder til Google Sheets via gspread ved brug af en Service Account.
-    Henter beholdningsdata og Watchlist/Huller dynamisk.
+    Læser data direkte fra et offentligt delt Google Sheet link via Pandas.
+    Kræver INGEN Google Cloud-opsætning eller Service Accounts.
     """
-    def __init__(self, credentials_str: str, sheet_id: str):
-        self.credentials_str = credentials_str
+    def __init__(self, sheet_id: str):
         self.sheet_id = sheet_id
-        self.client = None
-        self.spreadsheet = None
 
-    def connect(self):
-        if not self.credentials_str or not self.sheet_id:
-            raise ValueError("Mangler GOOGLE_SHEETS_CREDENTIALS eller GOOGLE_SHEET_ID i miljøvariablerne.")
-        
+    def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
+        # Kod fanenavnet korrekt (håndterer æ, ø, å og mellemrum)
+        encoded_tab = urllib.parse.quote(tab_name)
+        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
         try:
-            creds_dict = json.loads(self.credentials_str)
-            # Log ind via gspreads indbyggede service account login
-            self.client = gspread.service_account_from_dict(creds_dict)
-            self.spreadsheet = self.client.open_by_key(self.sheet_id)
+            # Pandas downloader og parser automatisk CSV-strømmen
+            df = pd.read_csv(url)
+            return df
         except Exception as e:
-            raise RuntimeError(f"Kunne ikke oprette forbindelse til Google Sheets: {str(e)}")
+            raise RuntimeError(
+                f"Kunne ikke hente fanen '{tab_name}' fra dit Google Sheet. "
+                f"Sørg for, at dit ark er delt som 'Alle med linket kan se' (Læserettigheder). Fejl: {str(e)}"
+            )
+
+    def _find_column_by_keyword(self, df: pd.DataFrame, keyword: str) -> str:
+        """
+        Søger fleksibelt efter en kolonne, der indeholder et bestemt nøgleord.
+        Gør det muligt at finde 'B: Ticker' eller 'Ticker' uanset præcis navngivning.
+        """
+        for col in df.columns:
+            if keyword.lower() in str(col).lower():
+                return col
+        return None
 
     def get_current_weights(self) -> dict:
         """
-        Læser fanen 'Beholdninger', grupperer efter 'H: Drivkraft' 
-        og beregner de aktuelle porteføljevægte.
+        Læser fanen 'Beholdninger', finder vægtkolonnerne og grupperer efter drivkraft.
         """
-        try:
-            worksheet = self.spreadsheet.worksheet("Beholdninger")
-            data = worksheet.get_all_records()
-            df = pd.DataFrame(data)
+        df = self._read_tab_as_df("Beholdninger")
+        
+        drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
+        weight_col = self._find_column_by_keyword(df, "vægt")  # Finder 'Porteføljevægt'
 
-            # Sikrer at de nødvendige kolonner findes
-            required_cols = ['Drivkraft', 'Porteføljevægt']
-            for col in required_cols:
-                if col not in df.columns:
-                    raise KeyError(f"Kolonnen '{col}' blev ikke fundet i fanen 'Beholdninger'.")
+        if not drivkraft_col or not weight_col:
+            raise KeyError(
+                f"Kunne ikke finde de nødvendige kolonner i 'Beholdninger'. "
+                f"Søgte efter 'Drivkraft' (fandt: {drivkraft_col}) og 'Vægt' (fandt: {weight_col})."
+            )
 
-            # Rens 'Porteføljevægt'-kolonnen (fjerner %, konverterer til float)
-            def clean_weight(val):
-                if pd.isna(val) or val == "":
-                    return 0.0
-                val_str = str(val).replace('%', '').replace(',', '.').strip()
-                try:
-                    return float(val_str)
-                except ValueError:
-                    return 0.0
+        # Rense-funktion til vægtninger (f.eks. konvertering af '15.5%' eller '15,5' til float)
+        def clean_weight(val):
+            if pd.isna(val) or val == "":
+                return 0.0
+            val_str = str(val).replace('%', '').replace(',', '.').strip()
+            try:
+                return float(val_str)
+            except ValueError:
+                return 0.0
 
-            df['Cleaned_Weight'] = df['Porteføljevægt'].apply(clean_weight)
+        df['Cleaned_Weight'] = df[weight_col].apply(clean_weight)
 
-            # Gruppér efter Drivkraft (som svarer til dine kasser i Excel)
-            grouped = df.groupby('Drivkraft')['Cleaned_Weight'].sum().to_dict()
+        # Gruppér efter drivkraft og beregn summen
+        grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
 
-            # Normaliser navne så de matcher TARGET_PORTFOLIO nøgler
-            normalized_portfolio = {}
-            for k, v in TARGET_PORTFOLIO.items():
-                # Lav en simpel case-insensitive søgning
-                found_val = 0.0
-                for g_key, g_val in grouped.items():
-                    if k.lower() in g_key.lower() or g_key.lower() in k.lower():
-                        found_val += g_val
-                normalized_portfolio[k] = found_val
+        # Tilpas til vores interne kategorinavne
+        normalized_portfolio = {}
+        for target_key in TARGET_PORTFOLIO.keys():
+            sum_val = 0.0
+            for g_key, g_val in grouped.items():
+                if target_key.lower() in str(g_key).lower() or str(g_key).lower() in target_key.lower():
+                    sum_val += g_val
+            normalized_portfolio[target_key] = sum_val
 
-            return normalized_portfolio
-
-        except Exception as e:
-            raise RuntimeError(f"Fejl under behandling af fanen 'Beholdninger': {str(e)}")
+        return normalized_portfolio
 
     def get_watchlist_tickers(self) -> list:
         """
-        Læser fanen 'Opsummering' og isolerer kolonnen 'N: Huller / Watchlist'
-        til brug for screening.
+        Læser fanen 'Opsummering' og trækker tickers ud af kolonne N (Watchlist).
         """
-        try:
-            worksheet = self.spreadsheet.worksheet("Opsummering")
-            
-            # Da 'Opsummering' kan have tomme celler i toppen eller være asymmetrisk,
-            # henter vi værdierne for hele kolonne N direkte
-            all_cols = worksheet.get_all_values()
-            
-            # Find indeks for kolonne N (14. kolonne)
-            col_n_index = 13  # 0-baseret indeks for kolonne 14
-            
-            tickers = []
-            for row in all_cols[1:]:  # Spring headeren over
-                if len(row) > col_n_index:
-                    ticker = row[col_n_index].strip()
-                    # Ignorer tomme celler, overskrifter eller forklarende tekst
-                    if ticker and len(ticker) < 15 and "/" not in ticker and "Huller" not in ticker:
-                        # Rengør tickeren (f.eks. store bogstaver)
-                        tickers.append(ticker.upper())
-            
-            return list(set(tickers)) # Returner unikke tickers
-        except Exception as e:
-            raise RuntimeError(f"Fejl under behandling af 'Opsummering' (Watchlist): {str(e)}")
+        df = self._read_tab_as_df("Opsummering")
+        
+        # Prøv at søge efter kolonne 'Huller' eller 'Watchlist'
+        watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
+        
+        tickers = []
+        if watchlist_col:
+            raw_series = df[watchlist_col]
+        else:
+            # Hvis vi ikke finder navnet, falder vi tilbage til kolonne 14 (Column N i Excel er index 13)
+            if len(df.columns) >= 14:
+                raw_series = df.iloc[:, 13]
+            else:
+                raise KeyError("Kunne ikke lokalisere kolonne N (Huller / Watchlist) i fanen 'Opsummering'.")
+
+        for val in raw_series:
+            if pd.isna(val):
+                continue
+            val_str = str(val).strip()
+            # Ignorer forklarende tekster eller tomme rækker
+            if val_str and len(val_str) < 15 and "/" not in val_str and "huller" not in val_str.lower():
+                tickers.append(val_str.upper())
+
+        return list(set(tickers))
 
 
 # =====================================================================
 #  PORTFOLIO MANAGER AGENT
 # =====================================================================
 class PortfolioManagerAgent:
-    """
-    Analyserer afvigelsen mellem nuværende vægtning (fra Google Sheets) 
-    og målvægtning (fra din model).
-    """
     def __init__(self, current: dict, target: dict):
         self.current = current
         self.target = target
@@ -152,14 +153,12 @@ class PortfolioManagerAgent:
     def identify_underweighted_focus(self) -> tuple:
         max_deficit = -999.0
         focus_category = None
-        
         for category, target_val in self.target.items():
             curr_val = self.current.get(category, 0.0)
             deficit = target_val - curr_val
             if deficit > max_deficit:
                 max_deficit = deficit
                 focus_category = category
-                
         return focus_category, max_deficit
 
 
@@ -167,10 +166,6 @@ class PortfolioManagerAgent:
 #  SCREENER & COMPLIANCE AGENT
 # =====================================================================
 class ScreenerComplianceAgent:
-    """
-    Validerer selskaber mod Sharia- og gældsregler (Gæld/Egenkapital eller Gæld/MarketCap < 30%).
-    Mapper også dynamisk Watchlist-kandidater til de rigtige portefølje-kasser.
-    """
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
     PROHIBITED_INDUSTRIES = [
         "Banks", "Insurance", "Aerospace & Defense", "Gambling", 
@@ -181,14 +176,10 @@ class ScreenerComplianceAgent:
         self.tickers = tickers
 
     def map_to_category(self, symbol: str, sector: str, industry: str) -> str:
-        """
-        Mapper automatisk en aktie til din Excel-datastrukturs kasser baseret på sektordata.
-        """
         symbol_upper = symbol.upper()
         sector_lower = sector.lower() if sector else ""
         industry_lower = industry.lower() if industry else ""
 
-        # Særlige hårde mappings
         if symbol_upper in ["WPM", "NEM", "GOLD", "AEM"]:
             return "Råvarer"
         if symbol_upper in ["IGDA.L", "SPSK", "HLAL"]:
@@ -203,7 +194,7 @@ class ScreenerComplianceAgent:
         elif "materials" in sector_lower:
             return "Råvarer"
             
-        return "Infrastruktur & Grøn Omstilling"  # Standard fallback
+        return "Infrastruktur & Grøn Omstilling"
 
     def screen_ticker(self, symbol: str) -> dict:
         try:
@@ -213,7 +204,6 @@ class ScreenerComplianceAgent:
             if not info:
                 return {"symbol": symbol, "passed": False, "reason": "Ingen data fundet på yfinance"}
 
-            # 1. Sharia Branche-screening
             sector = info.get("sector", "")
             industry = info.get("industry", "")
             
@@ -225,7 +215,6 @@ class ScreenerComplianceAgent:
                 if p_ind.lower() in industry.lower():
                     return {"symbol": symbol, "passed": False, "reason": f"Ikke-tilladt branche: {industry}"}
 
-            # 2. Gældsscreening
             debt_to_equity = info.get("debtToEquity")
             total_debt = info.get("totalDebt")
             market_cap = info.get("marketCap")
@@ -264,13 +253,9 @@ class ScreenerComplianceAgent:
             }
 
         except Exception as e:
-            return {"symbol": symbol, "passed": False, "reason": f"Systemfejl under screening: {str(e)}"}
+            return {"symbol": symbol, "passed": False, "reason": f"Fejl under screening: {str(e)}"}
 
     def run_screening(self, target_category: str) -> list:
-        """
-        Screener alle kandidater fra din Watchlist, og returnerer dem, 
-        der både overholder kravene og passer ind i nattens fokus-kasse.
-        """
         approved_stocks = []
         for ticker in self.tickers:
             time.sleep(1.5)
@@ -284,9 +269,6 @@ class ScreenerComplianceAgent:
 #  FUNDAMENTAL AGENT
 # =====================================================================
 class FundamentalAgent:
-    """
-    Henter de seneste tre nyheder for det screenede selskab.
-    """
     @staticmethod
     def get_latest_news(symbol: str) -> list:
         try:
@@ -308,13 +290,8 @@ class FundamentalAgent:
 #  COUNCIL AGENT (GEMINI INTEGRATION)
 # =====================================================================
 class CouncilAgent:
-    """
-    Opretter forbindelse til Google Gemini API (gemini-1.5-flash / gemini-2.5-flash)
-    og genererer en dybdegående 5-personers rådsevaluering.
-    """
     def __init__(self, api_key: str):
         self.api_key = api_key
-        # Vi anvender standarden gemini-1.5-flash, der er hurtig og gratis under AI Studio grænserne
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
 
     def run_council(self, stock_info: dict, category: str, deficit: float, news: list) -> str:
@@ -462,11 +439,10 @@ class DeliveryAgent:
 # =====================================================================
 def main():
     try:
-        print("Henter data fra dit Google Sheet...")
+        print("Henter data fra dit offentlige Google Sheet via CSV-eksport...")
         
         # 1. Forbind til Google Sheets og læs data
-        sheets_agent = GoogleSheetsAgent(GOOGLE_SHEETS_CREDENTIALS, GOOGLE_SHEET_ID)
-        sheets_agent.connect()
+        sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
         # Udregn dynamiske vægte fra fanen 'Beholdninger'
         current_portfolio_weights = sheets_agent.get_current_weights()
