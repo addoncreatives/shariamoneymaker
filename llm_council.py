@@ -1,9 +1,10 @@
 import os
 import sys
 import time
+import io
+import re
 import json
 import traceback
-import urllib.parse
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -15,7 +16,6 @@ import pandas as pd
 #  KONFIGURATION OG MILJØVARIABLER
 # =====================================================================
 
-# Mål-vægtninger i din portefølje
 TARGET_PORTFOLIO = {
     "Tech & B2B Software": 20.0,
     "Defensivt Forbrug & Healthcare": 20.0,
@@ -24,8 +24,7 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Hent ID og API-nøgler fra GitHub Secrets
-# Dit Sheet ID fra dit link: 1EnE2XkQySaGsdaxR5KySZZ924LT66ICo
+# Dit unikke Google Sheet ID hentes fra hemmeligheder eller falder tilbage til dit link
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -37,35 +36,52 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
 
 # =====================================================================
-#  GOOGLE SHEETS AGENT (NUL FRIKTION / OFFENTLIG CSV METODE)
+#  GOOGLE SHEETS / EXCEL AGENT (EKSORT FILMETODE)
 # =====================================================================
 class GoogleSheetsAgent:
     """
-    Læser data direkte fra et offentligt delt Google Sheet link via Pandas.
-    Kræver INGEN Google Cloud-opsætning eller Service Accounts.
+    Downloader hele dit Google Sheet / Excel-ark som en .xlsx-fil i hukommelsen.
+    Dette sikrer, at vi kan tilgå fanerne fejlfrit uanset filtype.
     """
     def __init__(self, sheet_id: str):
         self.sheet_id = sheet_id
 
     def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
-        # Kod fanenavnet korrekt (håndterer æ, ø, å og mellemrum)
-        encoded_tab = urllib.parse.quote(tab_name)
-        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_tab}"
+        # Hent hele projektmappen som en Excel-fil
+        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=xlsx"
         try:
-            # Pandas downloader og parser automatisk CSV-strømmen
-            df = pd.read_csv(url)
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            # Indlæs den specifikke fane via openpyxl
+            df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
             return df
         except Exception as e:
             raise RuntimeError(
-                f"Kunne ikke hente fanen '{tab_name}' fra dit Google Sheet. "
-                f"Sørg for, at dit ark er delt som 'Alle med linket kan se' (Læserettigheder). Fejl: {str(e)}"
+                f"Kunne ikke indlæse fanen '{tab_name}' fra dit Google Sheet link. "
+                f"Er delingsindstillingerne sat til 'Alle med linket kan se'? Fejl: {str(e)}"
             )
 
+    def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
+        """
+        Søger ned gennem de første rækker for at finde den rigtige header,
+        hvis der er tomme rækker eller titelfelter i toppen af dit Excel-ark.
+        """
+        # Hvis søgeordet allerede er i kolonnerne, er alt i orden
+        for col in df.columns:
+            if key_header_word.lower() in str(col).lower():
+                return df
+                
+        # Ellers søg i de første 10 rækker for at finde header-rækken
+        for idx, row in df.head(10).iterrows():
+            row_values = [str(val).lower() for val in row.values]
+            if any(key_header_word.lower() in val for val in row_values):
+                new_columns = df.iloc[idx].values
+                df.columns = new_columns
+                df = df.iloc[idx+1:].reset_index(drop=True)
+                return df
+        return df
+
     def _find_column_by_keyword(self, df: pd.DataFrame, keyword: str) -> str:
-        """
-        Søger fleksibelt efter en kolonne, der indeholder et bestemt nøgleord.
-        Gør det muligt at finde 'B: Ticker' eller 'Ticker' uanset præcis navngivning.
-        """
         for col in df.columns:
             if keyword.lower() in str(col).lower():
                 return col
@@ -75,18 +91,18 @@ class GoogleSheetsAgent:
         """
         Læser fanen 'Beholdninger', finder vægtkolonnerne og grupperer efter drivkraft.
         """
-        df = self._read_tab_as_df("Beholdninger")
+        raw_df = self._read_tab_as_df("Beholdninger")
+        df = self._clean_and_align_df(raw_df, "drivkraft")
         
         drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
-        weight_col = self._find_column_by_keyword(df, "vægt")  # Finder 'Porteføljevægt'
+        weight_col = self._find_column_by_keyword(df, "vægt")
 
         if not drivkraft_col or not weight_col:
             raise KeyError(
-                f"Kunne ikke finde de nødvendige kolonner i 'Beholdninger'. "
-                f"Søgte efter 'Drivkraft' (fandt: {drivkraft_col}) og 'Vægt' (fandt: {weight_col})."
+                f"Kunne ikke finde kolonnerne 'Drivkraft' og 'Porteføljevægt' i 'Beholdninger'. "
+                f"Tjek at de er navngivet korrekt i dit ark."
             )
 
-        # Rense-funktion til vægtninger (f.eks. konvertering af '15.5%' eller '15,5' til float)
         def clean_weight(val):
             if pd.isna(val) or val == "":
                 return 0.0
@@ -98,10 +114,10 @@ class GoogleSheetsAgent:
 
         df['Cleaned_Weight'] = df[weight_col].apply(clean_weight)
 
-        # Gruppér efter drivkraft og beregn summen
+        # Gruppér efter drivkraft
         grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
 
-        # Tilpas til vores interne kategorinavne
+        # Tilpas til TARGET_PORTFOLIO
         normalized_portfolio = {}
         for target_key in TARGET_PORTFOLIO.keys():
             sum_val = 0.0
@@ -114,18 +130,19 @@ class GoogleSheetsAgent:
 
     def get_watchlist_tickers(self) -> list:
         """
-        Læser fanen 'Opsummering' og trækker tickers ud af kolonne N (Watchlist).
+        Læser fanen 'Opsummering', finder kolonne N (Huller / Watchlist) og trækker rene tickers ud.
         """
-        df = self._read_tab_as_df("Opsummering")
+        raw_df = self._read_tab_as_df("Opsummering")
+        # Juster kolonneoverskrifter baseret på "huller" eller "watchlist"
+        df = self._clean_and_align_df(raw_df, "huller")
         
-        # Prøv at søge efter kolonne 'Huller' eller 'Watchlist'
         watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
         
         tickers = []
         if watchlist_col:
             raw_series = df[watchlist_col]
         else:
-            # Hvis vi ikke finder navnet, falder vi tilbage til kolonne 14 (Column N i Excel er index 13)
+            # Hvis vi ikke finder navnet, falder vi tilbage til kolonne 14 (Kolonne N)
             if len(df.columns) >= 14:
                 raw_series = df.iloc[:, 13]
             else:
@@ -134,10 +151,12 @@ class GoogleSheetsAgent:
         for val in raw_series:
             if pd.isna(val):
                 continue
-            val_str = str(val).strip()
-            # Ignorer forklarende tekster eller tomme rækker
-            if val_str and len(val_str) < 15 and "/" not in val_str and "huller" not in val_str.lower():
-                tickers.append(val_str.upper())
+            val_str = str(val).strip().upper()
+            # Valider at det ligner en rigdig ticker (fx ingen sætninger, ingen tegn undtagen . og -)
+            if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
+                # Undgå at vi trækker overskrifter som f.eks. "TICKER" eller "STATUS" ind
+                if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                    tickers.append(val_str)
 
         return list(set(tickers))
 
@@ -413,7 +432,8 @@ class DeliveryAgent:
     @staticmethod
     def send_email(subject: str, content: str):
         if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
-            print(f"--- {subject} ---")
+            print("E-mail konfiguration mangler eller er ufuldstændig i GitHub Secrets. Udskriver rapporten her:")
+            print(f"\n=== {subject} ===\n")
             print(content)
             return
 
@@ -429,9 +449,9 @@ class DeliveryAgent:
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
             server.quit()
-            print("Rapport sendt pr. e-mail.")
+            print("Succes: Rapport er blevet sendt pr. e-mail.")
         except Exception as e:
-            print(f"E-mail fejl: {str(e)}")
+            print(f"Fejl ved afsendelse af e-mail: {str(e)}")
 
 
 # =====================================================================
@@ -439,18 +459,21 @@ class DeliveryAgent:
 # =====================================================================
 def main():
     try:
-        print("Henter data fra dit offentlige Google Sheet via CSV-eksport...")
+        print("Henter data fra dit Google Sheet som Excel-projektmappe...")
         
-        # 1. Forbind til Google Sheets og læs data
+        # 1. Indlæs data via Excel-eksport URL
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
         # Udregn dynamiske vægte fra fanen 'Beholdninger'
         current_portfolio_weights = sheets_agent.get_current_weights()
-        print(f"Aktuelle vægte beregnet: {current_portfolio_weights}")
+        print(f"Aktuelle vægte beregnet fra Google Sheet: {current_portfolio_weights}")
         
-        # Hent Watchlist-tickers fra 'Opsummering' (Kolonne N)
+        # Hent Watchlist-tickers fra 'Opsummering'
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
-        print(f"Watchlist-kandidater fundet: {watchlist_tickers}")
+        print(f"Watchlist-kandidater fundet i Google Sheet: {watchlist_tickers}")
+
+        if not watchlist_tickers:
+            print("Advarsel: Ingen gyldige tickers fundet i Watchlist.")
 
         # 2. Find mest undervægtede kategori
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
