@@ -12,10 +12,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6 # Opgraderet fra v3 for at understøtte Node.js 24
+      uses: actions/checkout@v6
 
     - name: Set up Python
-      uses: actions/setup-python@v6 # Opgraderet fra v4 for at understøtte Node.js 24
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
 
