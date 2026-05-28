@@ -25,36 +25,32 @@ import requests
 import pandas as pd
 
 # =====================================================================
-#  KONFIGURATION OG MILJØVARIABLER
+#  KONFIGURATION OG MILJØVARIABLER (DIT STRATEGISKE 4x25% MÅLBILLEDE)
 # =====================================================================
 
 TARGET_PORTFOLIO = {
-    "Tech & B2B Software": 20.0,
-    "Defensivt Forbrug & Healthcare": 20.0,
-    "Infrastruktur & Grøn Omstilling": 20.0,
-    "Råvarer": 10.0,
-    "ETFer & Sukuk": 30.0
+    "Aktier": 25.0,
+    "Sukuk": 25.0,
+    "Råvarer": 25.0,
+    "Kontanter/Private": 25.0
 }
 
-# GLOBAL ISLAMIC GROWTH UNIVERSE (Proaktiv søgebase)
+# GLOBAL ISLAMIC GROWTH UNIVERSE (Tilpasset din 4x25%-model)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
-    "Tech & B2B Software": [
+    "Aktier": [
+        "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
         "TRMB", "SAP", "IFX.DE", "MSFT", "ASML", "NVDA", "ADBE", "CRM", "SNPS", 
-        "ANSS", "CSCO", "AMAT", "LRCX", "NOW", "PANW", "FTNT", "ORCL"
+        "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
+        "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO"
     ],
-    "Defensivt Forbrug & Healthcare": [
-        "ORK.OL", "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
-        "SYK", "MRK", "ZTS", "MDT", "GILD", "EL.PA", "NSRGY"
-    ],
-    "Infrastruktur & Grøn Omstilling": [
-        "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO", "ENPH", "FSLR", "ETN", "ABB", 
-        "ALB", "ORSTED.CO", "SIE.DE", "GE", "NEE", "SRE"
+    "Sukuk": [
+        "SPSK", "SKUK"
     ],
     "Råvarer": [
         "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
     ],
-    "ETFer & Sukuk": [
-        "IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L"
+    "Kontanter/Private": [
+        "SPSK"  # Sukuk/likvide midler anvendes som sikker proxy for kontant-placeringer
     ]
 }
 
@@ -81,13 +77,9 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 # =====================================================================
-#  STÆRK TEKST-NORMALISERING (FJERNER APOSTROF-FEJL)
+#  STÆRK TEKST-NORMALISERING (FJERNER STAVE- OG APOSTROF-FEJL)
 # =====================================================================
 def normalize_string(s: str) -> str:
-    """
-    Renser og normaliserer strenge for at undgå fejl-matches.
-    Konverterer f.eks. både 'ETF'er & Sukuk' og 'ETFer og Sukuk' til 'etfandsukuk'.
-    """
     if not s or pd.isna(s):
         return ""
     s = str(s).lower().strip()
@@ -136,6 +128,10 @@ class GoogleSheetsAgent:
         return None
 
     def get_current_weights(self) -> dict:
+        """
+        Læser fanen 'Beholdninger', identificerer vægtene og fordeler dem 
+        helt fejlfrit i dine 4 strategiske hovedkasser (Aktier, Sukuk, Råvarer, Kontanter).
+        """
         try:
             raw_df = self._read_tab_as_df("Beholdninger")
             df = self._clean_and_align_df(raw_df, "ticker")
@@ -147,15 +143,14 @@ class GoogleSheetsAgent:
             weight_col = self._find_column_by_keyword(df, "vægt")
             mv_col = self._find_column_by_keyword(df, "markedsværdi")
 
-            if not drivkraft_col or not weight_col:
-                raise KeyError("Kunne ikke lokalisere Drivkraft- eller Vægt-kolonne.")
+            if not aktivklasse_col or not weight_col:
+                raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i dit Google Sheet.")
 
             # Rense-funktioner til talværdier
             def clean_number(val):
                 if pd.isna(val) or val == "":
                     return 0.0
-                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').strip()
-                # Håndtér europæisk tal-formatering (f.eks. 1.942,66)
+                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').replace('\xa0', '').strip()
                 if ',' in val_str and '.' in val_str:
                     if val_str.find('.') < val_str.find(','):
                         val_str = val_str.replace('.', '').replace(',', '.')
@@ -171,18 +166,24 @@ class GoogleSheetsAgent:
             df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
             df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
-            # Sikkerhedsnet: Hvis vægt-kolonnen er tom eller ikke summerer til noget (f.eks. pga. formelfejl),
-            # beregner vi vægten dynamisk ud fra kolonnen Markedsværdi (DKK).
+            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK) for absolut matematisk præcision
             total_mv = df['Cleaned_MV'].sum()
             total_weight = df['Cleaned_Weight'].sum()
 
             if total_weight < 1.0 and total_mv > 0.0:
                 print("Sikkerhedsnet aktiveret: Beregner porteføljevægte direkte ud fra Markedsværdi (DKK)...")
                 df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
+            elif total_mv > 0.0:
+                # Vi vælger at overskrive med Markedsværdi-baseret vægtning for at matche din Excel-visning 100%
+                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
 
-            # Normaliser målkategorier til sammenligning
-            normalized_targets = {normalize_string(k): k for k in TARGET_PORTFOLIO.keys()}
-            portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
+            # 4x25% Portfolio Distribution
+            portfolio_distribution = {
+                "Aktier": 0.0,
+                "Sukuk": 0.0,
+                "Råvarer": 0.0,
+                "Kontanter/Private": 0.0
+            }
 
             # Læs og kategoriser hver række
             for _, row in df.iterrows():
@@ -190,32 +191,59 @@ class GoogleSheetsAgent:
                 if row_weight <= 0.0:
                     continue
 
-                # Træk data fra Drivkraft, Aktivklasse og Sektor for maksimal sikkerhed
-                drivkraft_val = normalize_string(row.get(drivkraft_col, ""))
+                # Samler tekstværdier på tværs af de tre definerende kolonner
+                drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
                 aktivklasse_val = normalize_string(row.get(aktivklasse_col, ""))
-                sektor_val = normalize_string(row.get(sektor_col, ""))
+                sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
 
-                mapped = False
-                
-                # 1. Specifikt tjek for ETF'er og Sukuk på tværs af alle tre kolonner
-                # Hvis ordet 'etf' eller 'sukuk' indgår i en af kolonnerne, mappes det direkte hertil.
-                if "etf" in drivkraft_val or "etf" in aktivklasse_val or "etf" in sektor_val or \
-                   "sukuk" in drivkraft_val or "sukuk" in aktivklasse_val or "sukuk" in sektor_val:
-                    portfolio_distribution["ETFer & Sukuk"] += row_weight
-                    mapped = True
+                combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
 
-                # 2. Hvis ikke etf/sukuk, søg efter de resterende kasser
-                if not mapped:
-                    for norm_target, display_target in normalized_targets.items():
-                        if norm_target in drivkraft_val or norm_target in aktivklasse_val or norm_target in sektor_val:
-                            portfolio_distribution[display_target] += row_weight
-                            mapped = True
-                            break
+                # Robust 4x25%-sortering baseret på din fane-struktur
+                if "sukuk" in combined_text:
+                    portfolio_distribution["Sukuk"] += row_weight
+                elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
+                    portfolio_distribution["Råvarer"] += row_weight
+                elif any(word in combined_text for word in ["kontant", "cash", "private"]):
+                    portfolio_distribution["Kontanter/Private"] += row_weight
+                else:
+                    # Almindelige aktier og aktie-ETF'er (f.eks. MSAU, IGDA) falder herind
+                    portfolio_distribution["Aktier"] += row_weight
 
             return portfolio_distribution
         except Exception as e:
             print(f"Advarsel under indlæsning af 'Beholdninger' (bruger standardvægte): {str(e)}")
             return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
+
+    def get_current_holdings_details(self) -> list:
+        """
+        Trækker alle specifikke, navngivne positioner ud af 'Beholdninger'-fanen,
+        så LLM Council har det fulde billede af de eksisterende aktiver under debatten.
+        """
+        try:
+            raw_df = self._read_tab_as_df("Beholdninger")
+            df = self._clean_and_align_df(raw_df, "ticker")
+            
+            ticker_col = self._find_column_by_keyword(df, "ticker")
+            position_col = self._find_column_by_keyword(df, "position") or self._find_column_by_keyword(df, "navn")
+            mv_col = self._find_column_by_keyword(df, "markedsværdi")
+            sektor_col = self._find_column_by_keyword(df, "sektor")
+            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
+            
+            holdings = []
+            for _, row in df.iterrows():
+                ticker = str(row.get(ticker_col, "")).strip().upper()
+                if ticker and not pd.isna(row.get(ticker_col)) and ticker not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                    holdings.append({
+                        "ticker": ticker,
+                        "name": str(row.get(position_col, ticker)).strip(),
+                        "market_value": str(row.get(mv_col, "0.00 DKK")).strip(),
+                        "sector": str(row.get(sektor_col, "N/A")).strip(),
+                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip()
+                    })
+            return holdings
+        except Exception as e:
+            print(f"Advarsel under hentning af beholdningsdetaljer: {str(e)}")
+            return []
 
     def get_watchlist_tickers(self) -> list:
         try:
@@ -285,21 +313,17 @@ class ScreenerComplianceAgent:
         sector_lower = sector.lower() if sector else ""
         industry_lower = industry.lower() if industry else ""
 
-        if symbol_upper in ["WPM", "NEM", "GOLD", "AEM"]:
-            return "Råvarer"
-        if symbol_upper in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L", "MSAU.L", "SKUK"]:
-            return "ETFer & Sukuk"
-
-        if "technology" in sector_lower or "software" in industry_lower:
-            return "Tech & B2B Software"
-        elif "healthcare" in sector_lower or "defensive" in sector_lower or "medical" in industry_lower:
-            return "Defensivt Forbrug & Healthcare"
-        elif "industrial" in sector_lower or "utilities" in sector_lower or "energy" in sector_lower:
-            return "Infrastruktur & Grøn Omstilling"
-        elif "materials" in sector_lower:
+        if "sukuk" in symbol_upper or symbol_upper in ["SPSK", "SKUK"]:
+            return "Sukuk"
+            
+        if symbol_upper in ["WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"] or \
+           any(word in industry_lower for word in ["gold", "silver", "precious metals"]):
             return "Råvarer"
             
-        return "Infrastruktur & Grøn Omstilling"
+        if "cash" in symbol_upper or "money market" in sector_lower:
+            return "Kontanter/Private"
+            
+        return "Aktier"
 
     def screen_ticker(self, symbol: str) -> dict:
         try:
@@ -313,7 +337,7 @@ class ScreenerComplianceAgent:
             is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "MSAU.L", "SKUK"]
 
             if is_etf:
-                mapped_cat = "ETFer & Sukuk"
+                mapped_cat = self.map_to_category(symbol, "ETF", "ETF")
                 return {
                     "symbol": symbol,
                     "passed": True,
@@ -417,7 +441,7 @@ class CouncilAgent:
         self.api_key = api_key
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={self.api_key}"
 
-    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str) -> str:
+    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str) -> str:
         candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
         
         context = f"""
@@ -432,8 +456,12 @@ class CouncilAgent:
         Du er en elitesammenslutning af 5 finansielle rådgivere og en formand ("LLM Council"), der fungerer som den personlige analyseafdeling for en langsigtet, muslimsk investor i Norden.
         
         SITUATIONSBILLEDE:
-        Aktuel porteføljefordeling udlæst fra investors Google Sheet:
+        Aktuel porteføljefordeling udlæst fra investors Google Sheet (Fordelt efter den strategiske 4x25%-model):
         {current_portfolio_str}
+        
+        INVESTORS KONKRETE EKSISTERENDE POSITIONER:
+        Nedenfor er listen over præcis de værdipapirer, investor allerede ejer:
+        {current_holdings_str}
         
         DE 10 GODKENDTE KANDIDATER (KLARGJORT VIA DYNAMISK SCREENING):
         {candidates_json}
@@ -455,14 +483,23 @@ class CouncilAgent:
           - Executor: `border-left: 4px solid #3B82F6; background: #EFF6FF; padding: 15px; margin-bottom: 15px;` (Blå)
         - Formandens Konklusion: Skal være den absolut mest fremtrædende sektion. Pakkes ind i en guld-tonet boks: `<div style="background-color: #FDFBF7; border: 1px solid #E2D1B6; border-left: 6px solid #C5A880; padding: 25px; border-radius: 8px; margin-top: 30px;">`
         
+        DET ASYNKRONE MANDAT (KRITISK ANALYSE-TILFØJELSE):
+        Før I debatterer de nye selskaber, SKAL I foretage en kritisk vurdering af investors nuværende beholdninger. I skal vurdere:
+        1. Indirekte Eksponering: Er investoren allerede tilstrækkeligt indirekte eksponeret mod de underliggende økonomiske drivere i nattens fokus-kategori ({category}) via sine nuværende holdings (f.eks. via råvareintensive industriselskaber eller stærke globale vækst-fonde)?
+        2. Saxo & Sharia Barrierer: Tag eksplicit højde for, at Sharia-krav og Saxo Investors begrænsede produktudvalg ofte kan spærre for direkte køb.
+        3. Alternative Drivere: Hvis direkte Sharia-kompatible valgmuligheder er for snævre, skal I rådgive om, hvorvidt der bør opjusteres med risikospredning i andre "indirekte" selskaber med andre økonomiske drivere, men som korrelerer positivt med megatrenden (f.eks. ved at sprede råvarerisikoen over stærke mineaktier eller infrastrukturaktiver frem for rå guld-ETF'er).
+        
         INDHOLDSSKABELON (HTML):
         
-        <h1>🗳️ LLM Council Strategisk Analyse</h1>
+        <h1>🗳️ LLM Council Strategisk Analyse (4x25%-Modellen)</h1>
         <p><strong>Fokusområde:</strong> {category} (Mangler: {deficit:.2f}%)</p>
         
         <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
-        <h2>DEL 1 — DYBDEGÅENDE KONSULENT-ANALYSE (10 KANDIDATER)</h2>
+        <h2>DEL 1 — ANALYSE AF NUVERENDE PORTEFØLJE & INDIREKTE EKSPONERING</h2>
+        Her skal du (som det samlede råd) analysere, hvordan investors eksisterende positioner (f.eks. MSAU, IGDA, SKUK m.fl.) påvirker behovet for at handle direkte i {category} i dag. Konkluder om der reelt allerede findes tilfredsstillende indirekte eksponering, og diskuter Saxo/Sharia som barriere.
+        
+        <h2>DEL 2 — DYBDEGÅENDE KONSULENT-ANALYSE (10 KANDIDATER)</h2>
         For hver af de 10 kandidater skal du lave et unikt kort, der indeholder:
         1. <strong>Investeringscase</strong> (I forhold til investors portefølje-balance).
         2. <strong>Økonomisk Gennemgang</strong> (Kvartalsrapport, vækst, marginer og cash flow baseret på data).
@@ -471,10 +508,10 @@ class CouncilAgent:
         5. <strong>Grafisk Analyse (Tekstbaseret)</strong> (Beskriv 3-måneders momentum og den 3-årige vækstrejse).
         6. <strong>Analytiker-indsigt & Kilder</strong>: Indsæt nøjagtigt 2 klikbare links formateret som pæne HTML-links (fx `<a href="https://seekingalpha.com/symbol/TICKER" style="color: #C5A880; text-decoration: none; font-weight: bold;">...</a>`).
         
-        <h2>DEL 2 — LLM COUNCIL DEBAT (TOP-3 KANDIDATER)</h2>
-        Udvælg de 3 mest lovende aktiver. Lad de 5 rådgivere køre en skarp, dybdegående debat (med anonym peer-review bagefter i overensstemmelse med de 5 roller) [3]. Sørg for at bruge de farvekodede bokse angivet i designguiden for hver rådgiver.
+        <h2>DEL 3 — LLM COUNCIL DEBAT (TOP-3 KANDIDATER)</h2>
+        Udvælg de 3 mest lovende aktiver. Lad de 5 rådgivere køre en skarp, dybdegående debat (med anonym peer-review bagefter i overensstemmelse med de 5 roller) [3]. Integrer her den strategiske overvejelse om indirekte eksponering vs direkte dækning. Sørg for at bruge de farvekodede bokse angivet i designguiden for hver rådgiver.
         
-        <h2>DEL 3 — FORMANDENS ENDELIGE ANBEFALING</h2>
+        <h2>DEL 4 — FORMANDENS ENDELIGE ANBEFALING</h2>
         Præsenter formandens klare og uforbeholdne konklusion i den dertil indrettede guld-boks [3]. Inkluder ugens absolut vigtigste næste skridt for investoren [3].
         
         SVAR KUN MED SELVE HTML-KODEN. Ingen markdown, ingen "```html" blokke. Bare rå, ren HTML der er klar til at blive sendt direkte til e-mail serveren [3].
@@ -490,7 +527,7 @@ class CouncilAgent:
         }
         
         try:
-            response = requests.post(self.url, headers=headers, json=payload, timeout=90)
+            response = requests.post(self.url, headers=headers, json=payload, timeout=110)
             response.raise_for_status()
             data = response.json()
             
@@ -539,28 +576,32 @@ class DeliveryAgent:
 # =====================================================================
 def main():
     try:
-        print("Initialiserer proaktivt LLM Council med tekst-normalisering og tresporet søgning...")
+        print("Initialiserer proaktivt LLM Council med 4x25%-model, tresporet søgning og eksponeringsanalyse...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # 1. Hent investors aktuelle vægte (Opdateret med tresporet søgning og markedsværdi-backup)
+        # 1. Hent investors aktuelle vægte (Opdateret til 4x25% med markedsværdi-beregning)
         current_portfolio_weights = sheets_agent.get_current_weights()
-        print(f"Beregnet porteføljebalance fra Google Sheet: {current_portfolio_weights}")
+        print(f"Beregnet porteføljebalance (4x25%): {current_portfolio_weights}")
         
-        # 2. Hent investors personlige Watchlist
+        # 2. Hent de konkrete, individuelle positioner til dybdegående portefølje-analyse
+        current_holdings = sheets_agent.get_current_holdings_details()
+        print(f"Udlæst {len(current_holdings)} konkrete beholdninger fra dit Google Sheet.")
+        
+        # 3. Hent investors personlige Watchlist
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
         print(f"Investors personlige Watchlist: {watchlist_tickers}")
 
-        # 3. Find den mest undervægtede kasse, som skal have fokus
+        # 4. Find den mest undervægtede kasse i din 4x25%-struktur
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
         print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
 
-        # 4. PROAKTIV SØGNING: Kombiner personlig Watchlist med vores globale vækst-pool
+        # 5. PROAKTIV SØGNING: Kombiner personlig Watchlist med vores globale vækst-pool
         growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
         combined_candidates = list(set(watchlist_tickers + growth_pool))
         print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
 
-        # 5. Kør compliance screening (Sharia & Gælds-barrierer)
+        # 6. Kør compliance screening (Sharia & Gælds-barrierer)
         print("Screener kombineret søgebase mod Sharia- og gældskrav...")
         screener = ScreenerComplianceAgent(combined_candidates)
         approved_stocks = screener.run_screening(focus_category)
@@ -580,7 +621,7 @@ def main():
             DeliveryAgent.send_email(f"[LLM Council] Alert - Ingen godkendte kandidater i {focus_category}", error_html)
             return
 
-        # 6. Indhent detaljerede yfinance nøgletal for hver af de 10 kandidater
+        # 7. Indhent detaljerede yfinance nøgletal for hver af de 10 kandidater
         print("Indhenter detaljerede kvartalstal og finansielle metrics for de 10 kandidater...")
         detailed_candidates_data = []
         for stock in target_candidates:
@@ -612,24 +653,26 @@ def main():
                 print(f"Kunne ikke hente udvidede data for {symbol}: {str(e)}")
                 detailed_candidates_data.append(stock)
 
-        # 7. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
+        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport (inkl. dine individuelle positioner)
         council_report_html = "<h3>LLM Council fejl</h3><p>Kunne ikke generere rapporten.</p>"
         if GEMINI_API_KEY:
             print("Aktiverer Gemini 3.5 Flash til dybdegående HTML-investeringsanalyse...")
             current_portfolio_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
+            current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
             
             council_agent = CouncilAgent(GEMINI_API_KEY)
             council_report_html = council_agent.run_proactive_analysis(
                 candidates_data=detailed_candidates_data,
                 category=focus_category,
                 deficit=deficit,
-                current_portfolio_str=current_portfolio_weights_str
+                current_portfolio_str=current_portfolio_weights_str,
+                current_holdings_str=current_holdings_str
             )
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
             council_report_html = "<h3>Vigtig meddelelse</h3><p>GEMINI_API_KEY blev ikke fundet i dine systemmiljøer.</p>"
 
-        # 8. Send den færdige HTML-rapport afsted
+        # 9. Send den færdige HTML-rapport afsted
         subject = f"[LLM Council] Strategisk Rapport - Fokus: {focus_category}"
         DeliveryAgent.send_email(subject, council_report_html)
 
