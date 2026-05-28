@@ -36,17 +36,41 @@ TARGET_PORTFOLIO = {
     "ETFer & Sukuk": 30.0
 }
 
-# Hent Google Sheet ID
+# GLOBAL ISLAMIC GROWTH UNIVERSE (Proaktiv søgebase)
+# Dette sikrer, at systemet aldrig løber tør for kandidater, selv hvis din fane er tom.
+GLOBAL_COMPLIANT_GROWTH_POOL = {
+    "Tech & B2B Software": [
+        "TRMB", "SAP", "IFX.DE", "MSFT", "ASML", "NVDA", "ADBE", "CRM", "SNPS", 
+        "ANSS", "CSCO", "AMAT", "LRCX", "NOW", "PANW", "FTNT", "ORCL"
+    ],
+    "Defensivt Forbrug & Healthcare": [
+        "ORK.OL", "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
+        "SYK", "MRK", "ZTS", "MDT", "GILD", "EL.PA", "NSRGY"
+    ],
+    "Infrastruktur & Grøn Omstilling": [
+        "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO", "ENPH", "FSLR", "ETN", "ABB", 
+        "ALB", "ORSTED.CO", "SIE.DE", "GE", "NEE", "SRE"
+    ],
+    "Råvarer": [
+        "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
+    ],
+    "ETFer & Sukuk": [
+        "IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L"
+    ]
+}
+
+# Google Sheet ID (Delt link)
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 if not GOOGLE_SHEET_ID or GOOGLE_SHEET_ID.strip() == "":
     GOOGLE_SHEET_ID = "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo"
 
+# Den nye Gemini 3.5 Flash Model
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-# Sikkerhedsnet mod tomme strenge sendt af GitHub Actions
+# E-mail indstillinger (med standard fallbacks)
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 if not EMAIL_SENDER or EMAIL_SENDER.strip() == "":
     EMAIL_SENDER = "wazir.ilyas@gmail.com"
@@ -59,13 +83,9 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT (EKSORT FILMETODE)
+#  GOOGLE SHEETS / EXCEL AGENT
 # =====================================================================
 class GoogleSheetsAgent:
-    """
-    Downloader hele dit Google Sheet / Excel-ark som en .xlsx-fil direkte i hukommelsen.
-    Dette sikrer, at vi kan tilgå fanerne fejlfrit uanset filtype.
-    """
     def __init__(self, sheet_id: str):
         self.sheet_id = sheet_id
 
@@ -77,15 +97,9 @@ class GoogleSheetsAgent:
             df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
             return df
         except Exception as e:
-            raise RuntimeError(
-                f"Kunne ikke indlæse fanen '{tab_name}' fra dit Google Sheet link. Fejl: {str(e)}"
-            )
+            raise RuntimeError(f"Kunne ikke indlæse fanen '{tab_name}': {str(e)}")
 
     def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
-        """
-        Søger ned gennem de første rækker for at finde den rigtige header,
-        hvis der er tomme rækker eller titelfelter i toppen af dit Excel-ark.
-        """
         for col in df.columns:
             if key_header_word.lower() in str(col).lower():
                 return df
@@ -106,72 +120,69 @@ class GoogleSheetsAgent:
         return None
 
     def get_current_weights(self) -> dict:
-        """
-        Læser fanen 'Beholdninger', identificerer vægtkolonnerne og grupperer efter drivkraft.
-        """
-        raw_df = self._read_tab_as_df("Beholdninger")
-        df = self._clean_and_align_df(raw_df, "drivkraft")
-        
-        drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
-        weight_col = self._find_column_by_keyword(df, "vægt")
+        try:
+            raw_df = self._read_tab_as_df("Beholdninger")
+            df = self._clean_and_align_df(raw_df, "drivkraft")
+            
+            drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
+            weight_col = self._find_column_by_keyword(df, "vægt")
 
-        if not drivkraft_col or not weight_col:
-            raise KeyError(
-                f"Kunne ikke finde kolonnerne 'Drivkraft' og 'Porteføljevægt' i 'Beholdninger'."
-            )
+            if not drivkraft_col or not weight_col:
+                raise KeyError("Kunne ikke lokalisere Drivkraft- eller Vægt-kolonne.")
 
-        def clean_weight(val):
-            if pd.isna(val) or val == "":
-                return 0.0
-            val_str = str(val).replace('%', '').replace(',', '.').strip()
-            try:
-                return float(val_str)
-            except ValueError:
-                return 0.0
+            def clean_weight(val):
+                if pd.isna(val) or val == "":
+                    return 0.0
+                val_str = str(val).replace('%', '').replace(',', '.').strip()
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
 
-        df['Cleaned_Weight'] = df[weight_col].apply(clean_weight)
+            df['Cleaned_Weight'] = df[weight_col].apply(clean_weight)
+            grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
 
-        # Gruppér efter drivkraft
-        grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
+            normalized_portfolio = {}
+            for target_key in TARGET_PORTFOLIO.keys():
+                sum_val = 0.0
+                for g_key, g_val in grouped.items():
+                    if target_key.lower() in str(g_key).lower() or str(g_key).lower() in target_key.lower():
+                        sum_val += g_val
+                normalized_portfolio[target_key] = sum_val
 
-        # Tilpas til TARGET_PORTFOLIO's definerede kategorier
-        normalized_portfolio = {}
-        for target_key in TARGET_PORTFOLIO.keys():
-            sum_val = 0.0
-            for g_key, g_val in grouped.items():
-                if target_key.lower() in str(g_key).lower() or str(g_key).lower() in target_key.lower():
-                    sum_val += g_val
-            normalized_portfolio[target_key] = sum_val
-
-        return normalized_portfolio
+            return normalized_portfolio
+        except Exception as e:
+            print(f"Advarsel under indlæsning af 'Beholdninger' (bruger standardvægte): {str(e)}")
+            return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
 
     def get_watchlist_tickers(self) -> list:
-        """
-        Læser fanen 'Opsummering', lokaliserer kolonne N (Huller / Watchlist) og udtager rene tickers.
-        """
-        raw_df = self._read_tab_as_df("Opsummering")
-        df = self._clean_and_align_df(raw_df, "huller")
-        
-        watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
-        
-        tickers = []
-        if watchlist_col:
-            raw_series = df[watchlist_col]
-        else:
-            if len(df.columns) >= 14:
-                raw_series = df.iloc[:, 13]
+        try:
+            raw_df = self._read_tab_as_df("Opsummering")
+            df = self._clean_and_align_df(raw_df, "huller")
+            
+            watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
+            
+            tickers = []
+            if watchlist_col:
+                raw_series = df[watchlist_col]
             else:
-                raise KeyError("Kunne ikke lokalisere kolonne N (Huller / Watchlist) i fanen 'Opsummering'.")
+                if len(df.columns) >= 14:
+                    raw_series = df.iloc[:, 13]
+                else:
+                    return []
 
-        for val in raw_series:
-            if pd.isna(val):
-                continue
-            val_str = str(val).strip().upper()
-            if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
-                if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
-                    tickers.append(val_str)
+            for val in raw_series:
+                if pd.isna(val):
+                    continue
+                val_str = str(val).strip().upper()
+                if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
+                    if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                        tickers.append(val_str)
 
-        return list(set(tickers))
+            return list(set(tickers))
+        except Exception as e:
+            print(f"Advarsel under indlæsning af 'Opsummering' (Watchlist): {str(e)}")
+            return []
 
 
 # =====================================================================
@@ -195,7 +206,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT
+#  SCREENER & COMPLIANCE AGENT (PROAKTIV OG ETF-FEJLSIKRET)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -214,7 +225,7 @@ class ScreenerComplianceAgent:
 
         if symbol_upper in ["WPM", "NEM", "GOLD", "AEM"]:
             return "Råvarer"
-        if symbol_upper in ["IGDA.L", "SPSK", "HLAL"]:
+        if symbol_upper in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L"]:
             return "ETFer & Sukuk"
 
         if "technology" in sector_lower or "software" in industry_lower:
@@ -236,6 +247,25 @@ class ScreenerComplianceAgent:
             if not info:
                 return {"symbol": symbol, "passed": False, "reason": "Ingen data fundet på yfinance"}
 
+            # Tjek om det er en ETF eller en Sukuk-fond (de skal omgå traditionel gældsscreening)
+            quote_type = info.get("quoteType", "").upper()
+            is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L"]
+
+            if is_etf:
+                mapped_cat = "ETFer & Sukuk"
+                return {
+                    "symbol": symbol,
+                    "passed": True,
+                    "name": info.get("longName", symbol),
+                    "pe_ratio": info.get("trailingPE", "N/A"),
+                    "debt_ratio": "N/A (ETF/Sukuk)",
+                    "sector": "ETF / Fond",
+                    "industry": "ETF",
+                    "category": mapped_cat,
+                    "is_etf": True
+                }
+
+            # Sharia Branche-screening for almindelige aktier
             sector = info.get("sector", "")
             industry = info.get("industry", "")
             
@@ -247,6 +277,7 @@ class ScreenerComplianceAgent:
                 if p_ind.lower() in industry.lower():
                     return {"symbol": symbol, "passed": False, "reason": f"Ikke-tilladt branche: {industry}"}
 
+            # Gældsscreening (< 30% Gæld til Markedsværdi eller Gæld til Egenkapital)
             debt_to_equity = info.get("debtToEquity")
             total_debt = info.get("totalDebt")
             market_cap = info.get("marketCap")
@@ -281,7 +312,8 @@ class ScreenerComplianceAgent:
                 "debt_ratio": f"{debt_ratio_pct:.2f}% ({method_used})",
                 "sector": sector,
                 "industry": industry,
-                "category": mapped_cat
+                "category": mapped_cat,
+                "is_etf": False
             }
 
         except Exception as e:
@@ -298,80 +330,73 @@ class ScreenerComplianceAgent:
 
 
 # =====================================================================
-#  FUNDAMENTAL AGENT
-# =====================================================================
-class FundamentalAgent:
-    @staticmethod
-    def get_latest_news(symbol: str) -> list:
-        try:
-            ticker_obj = yf.Ticker(symbol)
-            news = ticker_obj.news
-            headlines = []
-            if news:
-                for item in news[:3]:
-                    title = item.get("title", "Ingen titel")
-                    link = item.get("link", "#")
-                    headlines.append(f"- [{title}]({link})")
-                return headlines
-            return ["Ingen nyheder fundet for nylig."]
-        except Exception:
-            return ["Kunne ikke hente nyheder."]
-
-
-# =====================================================================
-#  COUNCIL AGENT (GEMINI INTEGRATION)
+#  COUNCIL AGENT (GEMINI 3.5 FLASH - PROAKTIV KONSULENT)
 # =====================================================================
 class CouncilAgent:
+    """
+    Opretter forbindelse til Gemini 3.5 Flash og udfører den komplette analyse:
+    1. Detaljeret konsulent-analyse af de 10 godkendte kandidater.
+    2. Den asynkrone LLM-debat (5 rådgivere) baseret på de Top-3 mest lovende aktier.
+    3. Formandens endelige beslutningsrapport.
+    """
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.api_key}"
+        # Vi anvender den nye gemini-3.5-flash model til komplekse, agentiske og dybe analyser
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={self.api_key}"
 
-    def run_council(self, stock_info: dict, category: str, deficit: float, news: list) -> str:
-        news_str = "\n".join(news)
+    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str) -> str:
+        # Konverterer vores rå data til en klar JSON-struktur som Gemini kan forstå fejlfrit
+        candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
         
-        context = f"""
-        PROJEKT CONTEXT:
-        - Aktiv til evaluering: {stock_info.get('name')} ({stock_info.get('symbol')})
-        - Branche/Sektor: {stock_info.get('sector')} / {stock_info.get('industry')}
-        - P/E Nøgletal: {stock_info.get('pe_ratio')}
-        - Gældskvotient: {stock_info.get('debt_ratio')}
-        - Porteføljekasse: {category}
-        - Aktuel underallokering i dit Google Sheet: {deficit:.2f}%
-        - Seneste nyheder:
-        {news_str}
-        
-        Du rådgiver en langsigtet muslimsk investor i Norden, der følger en striks Sharia- og gældsdisciplin (<30% gæld).
-        """
-
         prompt = f"""
-        {context}
+        Du er en elitesammenslutning af 5 finansielle rådgivere og en formand ("LLM Council"), der fungerer som den personlige analyseafdeling for en langsigtet, muslimsk investor i Norden.
         
-        I want you to act as a five-person decision council. Do not skip steps. Do not blend the advisers together. Each adviser is a fundamentally different person with a different lens.
+        MÅLET MED ANALYSEN:
+        Vi skal finde de absolut stærkeste aktiver til at dække et underskud på {deficit:.2f}% i porteføljekassen "{category}".
         
-        Respond entirely in Danish.
+        SITUATIONSBILLEDE (DIN REFERENCE-RAMME):
+        Aktuel porteføljefordeling udlæst direkte fra investor's Google Sheet:
+        {current_portfolio_str}
         
-        STEP 1 — Each adviser answers separately.
-        For each of the five advisers below, write a labeled section with their answer. Stay in character. Different language, different priorities, different blind spots.
+        DE 10 GODKENDTE KANDIDATER (KLARGJORT VIA DYNAMISK SCREENING):
+        Nedenfor er de 10 selskaber, der har bestået alle Sharia- og gældskrav (<30% gældskvote). Her er deres rå nøgletal trukket live fra Yahoo Finance:
+        {candidates_json}
         
-        Adviser 1 — THE CONTRARIAN. Looks only for what will fail. Does not balance. Lists every reason this investment is wrong, what breaks first, and the worst plausible outcome.
+        DIN OPGAVE (DU MÅ IKKE SPRINGE NOGET OVER ELLER FORKORTE):
         
-        Adviser 2 — THE FIRST-PRINCIPLES THINKER. Rips apart my assumptions. Asks what I would do if I couldn't use any obvious framework. Strips the problem down to fundamentals and rebuilds.
+        ---------------------------------------------------------------------
+        DEL 1 — DYBDEGÅENDE KONSULENT-ANALYSE AF DE 10 KANDIDATER
+        For hver af de 10 kandidater ovenfor skal du udarbejde en skarp, professionel investeringsanalyse indeholdende:
         
-        Adviser 3 — THE EXPANSIONIST. Finds the upside I'm missing. Looks at the asymmetric outcome if this works. What does the bigger version of this open up?
+        1. Investeringscase: Hvorfor er denne aktie interessant lige nu i forhold til investors nuværende balance?
+        2. Økonomisk gennemgang: Opsummér seneste kvartalsrapport (vækst, marginer, cash flow). Brug din viden kombineret med de leverede rå nøgletal.
+        3. Fremtidsudsigter & Pipeline: Hvilke projekter, markeder eller produkter satser selskabet på?
+        4. Risikovurdering: Hvad er de største trusler (makro, konkurrenter, renter osv.)?
+        5. Grafisk Analyse (Tekstbaseret): Beskriv trenden over de sidste 3 måneder (momentum) og 3 år (langsigtet vækstrejse).
+        6. Analytiker-indsigt & Kilder: Indsæt nøjagtigt 2 direkte og klikbare URL-links til troværdige finansielle analyser (f.eks. Seeking Alpha, Yahoo Finance eller Reuters) udgivet inden for de seneste 30 dage. Brug det rigtige ticker-symbol til at forme URL'en (fx `https://seekingalpha.com/symbol/TICKER` eller `https://finance.yahoo.com/quote/TICKER`).
         
-        Adviser 4 — THE OUTSIDER. Knows nothing about my industry. Asks the dumb questions only an outsider asks. Surfaces the obvious things people inside the industry stopped questioning.
+        ---------------------------------------------------------------------
+        DEL 2 — LLM COUNCIL DEBAT (TOP-3)
+        Udvælg de TOP-3 absolut mest lovende kandidater ud af de 10. Kør nu en intens debat mellem dine 5 faste rådgivere baseret udelukkende på disse Top-3 aktiver:
         
-        Adviser 5 — THE EXECUTOR. Doesn't care about strategy. Cares about Monday morning. Tells me exactly what to do this week — the email to send, the conversation to have, the file to create, the decision to defer.
+        - Rådgiver 1 — THE CONTRARIAN: Ser kun fejl. Leder efter hvad der knækker først. Viser det absolut værste scenarie.
+        - Rådgiver 2 — THE FIRST-PRINCIPLES THINKER: Stripper problemet ned til det mest fundamentale. Riber alle antagelser fra hinanden.
+        - Rådgiver 3 — THE EXPANSIONIST: Finder det uventede potentiale. Hvad åbner det her op for i det helt store perspektiv?
+        - Rådgiver 4 — THE OUTSIDER: Ved intet om branchen. Stiller de åbenlyse, "dumme" spørgsmål, som folk i branchen er holdt op med at stille.
+        - Rådgiver 5 — THE EXECUTOR: Går kun op i handling. Hvad skal investoren gøre på mandag kl. 09:00?
         
-        STEP 2 — Anonymous peer review.
-        Now, for each adviser, write a short review of the OTHER FOUR responses — but anonymize them. Refer to them only as "Response A," "Response B," etc. Do not let an adviser know which response is which. Each adviser ranks the others 1–4 in accuracy and insight and explains in one paragraph what they got right and wrong.
+        Udfør den anonyme peer-review, hvor hver rådgiver kort anmelder og rater de andre 4 anonymiserede svar (Response A, B, C, D) med karakterer fra 1-4.
         
-        STEP 3 — The Chairman's final call.
-        Finally, act as the Chairman. You have read all five original answers and all five anonymous reviews. Synthesize a single clear recommendation. No hedging. No "both sides." Tell me:
-        - What the right decision actually is
-        - The one strongest reason for it
-        - The one biggest risk to watch for
-        - The specific next step I should take in the next 7 days
+        ---------------------------------------------------------------------
+        DEL 3 — FORMANDENS ENDELIGE BESLUTNING (CHAIRMAN'S CALL)
+        Formanden træffer nu den endelige beslutning baseret på de 10 analyser og debatten. Skriv en klar, uforbeholden anbefaling:
+        - Hvilken specifik aktie (eller ETF) investoren skal købe nu.
+        - Den absolut stærkeste grund til beslutningen.
+        - Den største risiko, som investoren skal holde skarpt øje med.
+        - Det konkrete næste skridt, der skal tages inden for de næste 7 dage.
+        
+        FORMATERING:
+        Skriv det hele i flot, overskuelig Markdown på dansk. Hold tonen skarp, finansielt funderet og analytisk udfordrende.
         """
 
         headers = {'Content-Type': 'application/json'}
@@ -384,7 +409,7 @@ class CouncilAgent:
         }
         
         try:
-            response = requests.post(self.url, headers=headers, json=payload, timeout=45)
+            response = requests.post(self.url, headers=headers, json=payload, timeout=90)
             response.raise_for_status()
             data = response.json()
             
@@ -393,54 +418,14 @@ class CouncilAgent:
                 if len(parts) > 0:
                     return parts[0]['text']
             
-            return "Fejl: Kunne ikke parse rådets svar korrekt."
+            return "### Fejl\n*Modtog uventet format fra Gemini 3.5 Flash.*"
         except Exception as e:
-            return f"Fejl under generering af LLM Council: {str(e)}"
+            return f"### Systemfejl under kørsel af LLM Council\nFejlbesked: {str(e)}"
 
 
 # =====================================================================
-#  DOSSIER GENERATOR & DELIVERY
+#  DELIVERY AGENT (SMTP NOTIFIKATION)
 # =====================================================================
-class DossierGenerator:
-    @staticmethod
-    def generate_report(focus_category: str, deficit: float, approved_data: list, council_report: str = None) -> str:
-        report = []
-        report.append(f"# Investeringsdossier: LLM Council\n")
-        report.append(f"**Analysefokus:** {focus_category} (Dynamisk identificeret via Google Sheets med et underskud på **{deficit:.2f}%**).\n")
-        report.append("---")
-
-        if not approved_data:
-            report.append(f"\n### Ingen godkendte Watchlist-aktiver fundet i dag.")
-            report.append(f"De screenede kandidater fra din fane 'Opsummering' (Kolonne N) passede enten ikke ind i kassen '{focus_category}', eller overholdt ikke dine Sharia- og gældskrav.")
-            return "\n".join(report)
-
-        for stock in approved_data:
-            symbol = stock["symbol"]
-            report.append(f"\n## {stock['name']} ({symbol})")
-            report.append(f"- **Sektor/Branche:** {stock['sector']} / {stock['industry']}")
-            report.append(f"- **P/E Ratio:** {stock['pe_ratio']}")
-            report.append(f"- **Gældsratio:** {stock['debt_ratio']}")
-            
-            report.append(f"\n### Portefølje-Fit (Excel-integration)")
-            report.append(
-                f"Selskabet matcher din kasse **{focus_category}**. "
-                f"Aktien vil bidrage til at dække din aktuelle underallokering på {deficit:.2f}% registreret i din fane 'Beholdninger'."
-            )
-            
-            report.append(f"\n### Seneste Nyhedsoverskrifter")
-            news_items = FundamentalAgent.get_latest_news(symbol)
-            for item in news_items:
-                report.append(item)
-            
-            if council_report:
-                report.append(f"\n\n## 🗳️ LLM Council Beslutningsrapport")
-                report.append(council_report)
-                
-            report.append("\n" + "-"*40)
-
-        return "\n".join(report)
-
-
 class DeliveryAgent:
     @staticmethod
     def send_email(subject: str, content: str):
@@ -462,67 +447,103 @@ class DeliveryAgent:
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
             server.quit()
-            print("Succes: Rapport er blevet sendt pr. e-mail.")
+            print("Succes: Strategisk e-mailrapport afsendt.")
         except Exception as e:
-            print(f"Fejl ved afsendelse af e-mail: {str(e)}")
+            print(f"Fejl under afsendelse af e-mail: {str(e)}")
 
 
 # =====================================================================
-#  HOVEDKØRSEL (ORCHESTRATOR)
+#  ORCHESTRATOR / SYSTEM FLOW
 # =====================================================================
 def main():
     try:
-        print("Henter data fra dit Google Sheet som Excel-projektmappe...")
-        
-        # 1. Indlæs data via Excel-eksport URL
+        print("Henter porteføljedata fra Google Sheet...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # Udregn dynamiske vægte fra fanen 'Beholdninger'
+        # 1. Hent investors aktuelle vægte
         current_portfolio_weights = sheets_agent.get_current_weights()
-        print(f"Aktuelle vægte beregnet fra Google Sheet: {current_portfolio_weights}")
+        print(f"Beregnet porteføljebalance: {current_portfolio_weights}")
         
-        # Hent Watchlist-tickers fra 'Opsummering'
+        # 2. Hent investors personlige Watchlist
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
-        print(f"Watchlist-kandidater fundet i Google Sheet: {watchlist_tickers}")
+        print(f"Investors personlige Watchlist: {watchlist_tickers}")
 
-        if not watchlist_tickers:
-            print("Advarsel: Ingen gyldige tickers fundet i Watchlist.")
-
-        # 2. Find mest undervægtede kategori
+        # 3. Find den mest undervægtede kasse, som skal have fokus i nat
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
-        print(f"Fokus i nat: {focus_category} (Underskud: {deficit:.2f}%)")
+        print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
 
-        # 3. Kør screener på alle Watchlist-tickers
-        print("Screener kandidater mod Sharia- og gældsregler...")
-        screener = ScreenerComplianceAgent(watchlist_tickers)
+        # 4. PROAKTIV SØGNING: Kombiner personlig Watchlist med vores globale vækst-pool
+        # Dette sikrer, at vi altid har stærke kandidater til screening!
+        growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+        combined_candidates = list(set(watchlist_tickers + growth_pool))
+        print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
+
+        # 5. Kør compliance screening (Sharia & Gælds-barrierer)
+        print("Screener kombineret søgebase mod Sharia- og gældskrav...")
+        screener = ScreenerComplianceAgent(combined_candidates)
         approved_stocks = screener.run_screening(focus_category)
+        print(f"Godkendte kandidater fundet efter screening: {[s['symbol'] for s in approved_stocks]}")
+
+        # Tag de op til 10 bedste godkendte kandidater til den dybdegående analyse
+        target_candidates = approved_stocks[:10]
         
-        # 4. Kør LLM Council på den øverste godkendte aktie
-        council_report = None
-        if approved_stocks and GEMINI_API_KEY:
-            target_stock = approved_stocks[0]
-            print(f"Starter LLM Council på: {target_stock['symbol']}...")
+        if not target_candidates:
+            raise ValueError(f"Kunne ikke finde nogen godkendte kandidater til kategorien: {focus_category}")
+
+        # 6. Indhent detaljerede yfinance nøgletal for hver af de 10 kandidater
+        print("Indhenter detaljerede kvartalstal og finansielle metrics for de 10 kandidater...")
+        detailed_candidates_data = []
+        for stock in target_candidates:
+            symbol = stock["symbol"]
+            try:
+                t = yf.Ticker(symbol)
+                info = t.info
+                time.sleep(0.5) # Undgå yfinance blokering
+                
+                rev_growth = info.get("revenueGrowth", "N/A")
+                op_margins = info.get("operatingMargins", "N/A")
+                free_cashflow = info.get("freeCashflow", "N/A")
+                
+                detailed_candidates_data.append({
+                    "symbol": symbol,
+                    "name": stock["name"],
+                    "pe_ratio": stock["pe_ratio"],
+                    "debt_ratio": stock["debt_ratio"],
+                    "sector": stock["sector"],
+                    "industry": stock["industry"],
+                    "is_etf": stock.get("is_etf", False),
+                    "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                    "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                    "free_cash_flow": f"{free_cashflow / 1e6:.2f}M DKK/USD" if isinstance(free_cashflow, (int, float)) else "N/A",
+                    "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                    "currency": info.get("currency", "N/A")
+                })
+            except Exception as e:
+                print(f"Kunne ikke hente udvidede data for {symbol}: {str(e)}")
+                # Fallback til screenede data
+                detailed_candidates_data.append(stock)
+
+        # 7. Aktiver Gemini 3.5 Flash til den proaktive strategiske rådgivning
+        council_report = "### LLM Council kunne ikke genereres pga. manglende API-nøgle."
+        if GEMINI_API_KEY:
+            print("Aktiverer Gemini 3.5 Flash til dybdegående investeringsanalyse og rådsdebat...")
+            current_portfolio_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
             
-            news = FundamentalAgent.get_latest_news(target_stock["symbol"])
             council_agent = CouncilAgent(GEMINI_API_KEY)
-            
-            council_report = council_agent.run_council(
-                stock_info=target_stock,
+            council_report = council_agent.run_proactive_analysis(
+                candidates_data=detailed_candidates_data,
                 category=focus_category,
                 deficit=deficit,
-                news=news
+                current_portfolio_str=current_portfolio_str
             )
-        elif not GEMINI_API_KEY:
-            print("GEMINI_API_KEY mangler. Springer over LLM Council.")
 
-        # 5. Generer og afsend rapport
-        report_md = DossierGenerator.generate_report(focus_category, deficit, approved_stocks, council_report)
-        subject = f"[LLM Council] Strategisk Rapport - Fokus: {focus_category}"
-        DeliveryAgent.send_email(subject, report_md)
+        # 8. Send den færdige rapport afsted via e-mail
+        subject = f"[LLM Council] Strategisk Investeringsrapport - Fokus: {focus_category}"
+        DeliveryAgent.send_email(subject, council_report)
 
     except Exception as e:
-        error_msg = f"Der opstod en systemfejl i LLM Council-workflowet:\n\n{traceback.format_exc()}"
+        error_msg = f"Der opstod en kritisk systemfejl under kørslen af LLM Council-workflowet:\n\n{traceback.format_exc()}"
         print(error_msg, file=sys.stderr)
         DeliveryAgent.send_email("[System Error] LLM Council fejlede", error_msg)
 
