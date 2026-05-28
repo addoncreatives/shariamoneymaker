@@ -4,7 +4,7 @@ on:
   schedule:
     # Kører hver dag klokken 03:00 UTC (hvilket svarer til klokken 04:00 i GMT+1)
     - cron: '0 3 * * *'
-  workflow_dispatch: # Giver mulighed for at starte scriptet manuelt fra GitHub-brugerfladen
+  workflow_dispatch: 
 
 jobs:
   run-analyst:
@@ -26,6 +26,7 @@ jobs:
 
     - name: Run LLM Council Script
       env:
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
