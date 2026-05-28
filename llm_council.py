@@ -58,7 +58,7 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
     ]
 }
 
-# Hent Sheet ID og API-nøgler
+# Hent Google Sheet ID
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 if not GOOGLE_SHEET_ID or GOOGLE_SHEET_ID.strip() == "":
     GOOGLE_SHEET_ID = "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo"
@@ -81,7 +81,25 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT
+#  STÆRK TEKST-NORMALISERING (FJERNER APOSTROF-FEJL)
+# =====================================================================
+def normalize_string(s: str) -> str:
+    """
+    Renser og normaliserer strenge for at undgå fejl-matches.
+    Konverterer f.eks. både 'ETF'er & Sukuk' og 'ETFer og Sukuk' til 'etfandsukuk'.
+    """
+    if not s or pd.isna(s):
+        return ""
+    s = str(s).lower().strip()
+    s = s.replace("og", "and").replace("&", "and")
+    s = s.replace("'", "")  # Fjerner apostrof
+    s = re.sub(r'[^a-z0-9æøå]', '', s)  # Bevarer kun alfanumeriske tegn og nordiske bogstaver
+    s = s.replace("etfer", "etf").replace("etfs", "etf")  # Standardiserer ETF-varianter
+    return s
+
+
+# =====================================================================
+#  GOOGLE SHEETS / EXCEL AGENT (OPDATERET MED TRE-SPORET SØGNING)
 # =====================================================================
 class GoogleSheetsAgent:
     def __init__(self, sheet_id: str):
@@ -120,37 +138,83 @@ class GoogleSheetsAgent:
     def get_current_weights(self) -> dict:
         try:
             raw_df = self._read_tab_as_df("Beholdninger")
-            df = self._clean_and_align_df(raw_df, "drivkraft")
+            df = self._clean_and_align_df(raw_df, "ticker")
             
+            # Find de nødvendige kolonner
             drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
+            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
+            sektor_col = self._find_column_by_keyword(df, "sektor")
             weight_col = self._find_column_by_keyword(df, "vægt")
+            mv_col = self._find_column_by_keyword(df, "markedsværdi")
 
             if not drivkraft_col or not weight_col:
                 raise KeyError("Kunne ikke lokalisere Drivkraft- eller Vægt-kolonne.")
 
-            def clean_weight(val):
+            # Rense-funktioner til talværdier
+            def clean_number(val):
                 if pd.isna(val) or val == "":
                     return 0.0
-                val_str = str(val).replace('%', '').replace(',', '.').strip()
+                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').strip()
+                # Håndtér europæisk tal-formatering (f.eks. 1.942,66)
+                if ',' in val_str and '.' in val_str:
+                    if val_str.find('.') < val_str.find(','):
+                        val_str = val_str.replace('.', '').replace(',', '.')
+                    else:
+                        val_str = val_str.replace(',', '').replace('.', '.')
+                elif ',' in val_str:
+                    val_str = val_str.replace(',', '.')
                 try:
                     return float(val_str)
                 except ValueError:
                     return 0.0
 
-            df['Cleaned_Weight'] = df[weight_col].apply(clean_weight)
-            grouped = df.groupby(drivkraft_col)['Cleaned_Weight'].sum().to_dict()
+            df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
+            df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
-            normalized_portfolio = {}
-            for target_key in TARGET_PORTFOLIO.keys():
-                sum_val = 0.0
-                for g_key, g_val in grouped.items():
-                    if target_key.lower() in str(g_key).lower() or str(g_key).lower() in target_key.lower():
-                        sum_val += g_val
-                normalized_portfolio[target_key] = sum_val
+            # Sikkerhedsnet: Hvis vægt-kolonnen er tom eller ikke summerer til noget (f.eks. pga. formelfejl),
+            # beregner vi vægten dynamisk ud fra kolonnen Markedsværdi (DKK).
+            total_mv = df['Cleaned_MV'].sum()
+            total_weight = df['Cleaned_Weight'].sum()
 
-            return normalized_portfolio
+            if total_weight < 1.0 and total_mv > 0.0:
+                print("Sikkerhedsnet aktiveret: Beregner porteføljevægte direkte ud fra Markedsværdi (DKK)...")
+                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
+
+            # Normaliser målkategorier til sammenligning
+            normalized_targets = {normalize_string(k): k for k in TARGET_PORTFOLIO.keys()}
+            portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
+
+            # Læs og kategoriser hver række
+            for _, row in df.iterrows():
+                row_weight = row['Cleaned_Weight']
+                if row_weight <= 0.0:
+                    continue
+
+                # Træk data fra Drivkraft, Aktivklasse og Sektor for maksimal sikkerhed
+                drivkraft_val = normalize_string(row.get(drivkraft_col, ""))
+                aktivklasse_val = normalize_string(row.get(aktivklasse_col, ""))
+                sektor_val = normalize_string(row.get(sektor_col, ""))
+
+                mapped = False
+                
+                # 1. Specifikt tjek for ETF'er og Sukuk på tværs af alle tre kolonner
+                # Hvis ordet 'etf' eller 'sukuk' indgår i en af kolonnerne, mappes det direkte hertil.
+                if "etf" in drivkraft_val or "etf" in aktivklasse_val or "etf" in sektor_val or \
+                   "sukuk" in drivkraft_val or "sukuk" in aktivklasse_val or "sukuk" in sektor_val:
+                    portfolio_distribution["ETFer & Sukuk"] += row_weight
+                    mapped = True
+
+                # 2. Hvis ikke etf/sukuk, søg efter de resterende kasser
+                if not mapped:
+                    for norm_target, display_target in normalized_targets.items():
+                        if norm_target in drivkraft_val or norm_target in aktivklasse_val or norm_target in sektor_val:
+                            portfolio_distribution[display_target] += row_weight
+                            mapped = True
+                            break
+
+            return portfolio_distribution
         except Exception as e:
-            print(f"Advarsel under indlæsning af 'Beholdninger': {str(e)}")
+            print(f"Advarsel under indlæsning af 'Beholdninger' (bruger standardvægte): {str(e)}")
             return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
 
     def get_watchlist_tickers(self) -> list:
@@ -223,7 +287,7 @@ class ScreenerComplianceAgent:
 
         if symbol_upper in ["WPM", "NEM", "GOLD", "AEM"]:
             return "Råvarer"
-        if symbol_upper in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L"]:
+        if symbol_upper in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L", "MSAU.L", "SKUK"]:
             return "ETFer & Sukuk"
 
         if "technology" in sector_lower or "software" in industry_lower:
@@ -246,7 +310,7 @@ class ScreenerComplianceAgent:
                 return {"symbol": symbol, "passed": False, "reason": "Ingen data fundet på yfinance"}
 
             quote_type = info.get("quoteType", "").upper()
-            is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L"]
+            is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "MSAU.L", "SKUK"]
 
             if is_etf:
                 mapped_cat = "ETFer & Sukuk"
@@ -434,7 +498,6 @@ class CouncilAgent:
                 parts = data['candidates'][0]['content']['parts']
                 if len(parts) > 0:
                     raw_html = parts[0]['text']
-                    # Rens eventuelle markdown blokke hvis Gemini alligevel har inkluderet dem
                     raw_html = raw_html.replace("```html", "").replace("```", "").strip()
                     return raw_html
             
@@ -458,8 +521,6 @@ class DeliveryAgent:
         msg["From"] = EMAIL_SENDER
         msg["To"] = EMAIL_RECEIVER
         msg["Subject"] = subject
-        
-        # Ændret til 'html' for at aktivere CSS og moderne e-mail-layout
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
         try:
@@ -478,12 +539,12 @@ class DeliveryAgent:
 # =====================================================================
 def main():
     try:
-        print("Initialiserer proaktivt LLM Council med HTML-design...")
+        print("Initialiserer proaktivt LLM Council med tekst-normalisering og tresporet søgning...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # 1. Hent investors aktuelle vægte
+        # 1. Hent investors aktuelle vægte (Opdateret med tresporet søgning og markedsværdi-backup)
         current_portfolio_weights = sheets_agent.get_current_weights()
-        print(f"Beregnet porteføljebalance: {current_portfolio_weights}")
+        print(f"Beregnet porteføljebalance fra Google Sheet: {current_portfolio_weights}")
         
         # 2. Hent investors personlige Watchlist
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
@@ -509,7 +570,6 @@ def main():
         target_candidates = approved_stocks[:10]
         
         if not target_candidates:
-            # Hvis alt fejler, og der ikke er nogen godkendte kandidater
             error_html = f"""
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #FECACA; background-color: #FEF2F2; border-radius: 8px;">
                 <h2 style="color: #991B1B; margin-top: 0;">Ingen godkendte kandidater fundet</h2>
@@ -556,14 +616,14 @@ def main():
         council_report_html = "<h3>LLM Council fejl</h3><p>Kunne ikke generere rapporten.</p>"
         if GEMINI_API_KEY:
             print("Aktiverer Gemini 3.5 Flash til dybdegående HTML-investeringsanalyse...")
-            current_portfolio_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
+            current_portfolio_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
             
             council_agent = CouncilAgent(GEMINI_API_KEY)
             council_report_html = council_agent.run_proactive_analysis(
                 candidates_data=detailed_candidates_data,
                 category=focus_category,
                 deficit=deficit,
-                current_portfolio_str=current_portfolio_str
+                current_portfolio_str=current_portfolio_weights_str
             )
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
@@ -574,10 +634,9 @@ def main():
         DeliveryAgent.send_email(subject, council_report_html)
 
     except Exception as e:
-        error_msg = f"Kritisk systemfejl i LLM Council-workflowet:\n\n{traceback.format_exc()}"
+        error_msg = f"Der opstod en kritisk systemfejl under kørslen af LLM Council-workflowet:\n\n{traceback.format_exc()}"
         print(error_msg, file=sys.stderr)
         
-        # Konverterer systemfejlen til et pænt HTML-format
         error_html = f"""
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #FCA5A5; background-color: #FEF2F2; border-radius: 8px;">
             <h2 style="color: #B91C1C; margin-top: 0; border-bottom: 2px solid #FCA5A5; padding-bottom: 10px;">🚨 Systemfejl i LLM Council</h2>
