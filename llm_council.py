@@ -31,7 +31,7 @@ try:
 except ImportError:
     import subprocess
     print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
-    subprocess.call([sys.executable, "-m", "pip", "install", "edge-tts"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "edge-tts"])
     import edge_tts
 
 import yfinance as yf
@@ -47,6 +47,14 @@ TARGET_PORTFOLIO = {
     "Sukuk": 25.0,
     "Råvarer": 25.0,
     "Kontanter/Private": 25.0
+}
+
+# Oversættelse til den engelske nyhedsbrevs-rapport
+DISPLAY_CATEGORIES = {
+    "Aktier": "Equities",
+    "Sukuk": "Sukuk (Islamic Bonds)",
+    "Råvarer": "Commodities",
+    "Kontanter/Private": "Cash / Private Sector"
 }
 
 TARGET_SUBSECTORS = [
@@ -104,9 +112,9 @@ def normalize_string(s: str) -> str:
         return ""
     s = str(s).lower().strip()
     s = s.replace("og", "and").replace("&", "and")
-    s = s.replace("'", "")
-    s = re.sub(r'[^a-z0-9æøå]', '', s)
-    s = s.replace("etfer", "etf").replace("etfs", "etf")
+    s = s.replace("'", "")  # Fjerner apostrof
+    s = re.sub(r'[^a-z0-9æøå]', '', s)  # Bevarer kun alfanumeriske tegn og nordiske bogstaver
+    s = s.replace("etfer", "etf").replace("etfs", "etf")  # Standardiserer ETF-varianter
     return s
 
 
@@ -462,7 +470,7 @@ class ScreenerComplianceAgent:
 
 
 # =====================================================================
-#  COUNCIL AGENT (GEMINI 3.5 FLASH - FULDT STYLET HTML RAPPORT)
+#  COUNCIL AGENT (GEMINI 3.5 FLASH - ENGLISH HTML NEWSLETTER)
 # =====================================================================
 class CouncilAgent:
     def __init__(self, api_key: str):
@@ -473,39 +481,65 @@ class CouncilAgent:
         candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
         
         prompt = f"""
-        Du er en elitesammenslutning af 5 finansielle rådgivere og en formand ("LLM Council"), der rådgiver en Sharia-bevidst nordisk investor.
+        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, Wazir [3].
         
-        SITUATIONSBILLEDE & INVESTORPROFIL:
-        - Strategisk overordnet model: 4x25% (Aktier, Sukuk, Råvarer, Kontanter/Private) [3].
-        - Under evaluering i nat: {category} (Mangler: {deficit:.2f}%) [3].
-        - Aktuelle overordnede vægtninger: {current_portfolio_str} [3].
+        THE INVESTOR PROFILE & MODEL:
+        - Overarching Strategic Model: 4x25% (Equities, Sukuk, Commodities, Cash/Private) [3].
+        - Under Evaluation Tonight: {category} (Current Deficit: {deficit:.2f}%) [3].
+        - Current Portfolio Allocations (4x25%): {current_portfolio_str} [3].
         
-        INVESTORS 21 STRATEGISKE DELSEKTORER (ALLOKERING ER DYNAMISK BEREGNET FRA SHEET):
+        THE INVESTOR'S 21 STRATEGIC SUB-SECTORS (DYNAMICALLY COMPUTED FROM THE SHEET):
         {sector_distribution_str}
         
-        INVESTORS REELLE BEHOLDNINGER:
+        THE INVESTOR'S CURRENT HOLDINGS IN THE SHEET:
         {current_holdings_str}
         
-        NYE SCREENEDE KANDIDATER KLAR TIL EVALUERING:
+        NEW COMPLIANT SCREENED CANDIDATES TO BE EVALUATED:
         {candidates_json}
         
-        DIN OPGAVE (LEVER RAPPORTEN SOM REN HTML MED INLINE-CSS):
-        Generer en dyb, fængslende og professionel HTML-investeringsrapport. 
-        Brug udelukkende inline CSS-styling til e-mails. Anvend en minimalistisk palette med mørk slate overskrifter (`#0F172A`) og dæmpede guld-detaljer (`#C5A880`) [3].
+        YOUR OBJECTIVE (DELIVER ENTIRE BRIEFING IN BEAUTIFUL ENGLISH HTML):
+        Generate a complete, institutional-grade, highly engaging HTML investment newsletter in English [3].
         
-        DEL 1 — DELSEKTOR DIAGNOSE & INDIREKTE EKSPONERING
-        Analyser investors beholdninger mod de 21 delsektorer [3]. Ejer investor f.eks. selskaber (som FLSmidth eller NKT), der reelt allerede giver indirekte beskyttelse/råvareeksponering? Er visse delsektorer tomme? Diskuter Saxo Bank og Sharia som en begrænsende barriere.
+        Brug udelukkende inline CSS-styling for maximum compatibility with Gmail [3].
+        Design guidelines:
+        - Main container: `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 25px; background-color: #ffffff; color: #334155; line-height: 1.6;">`
+        - Colors: Dark Slate Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`) [3].
+        - Cards: Each of the screened candidates should be enclosed in a distinct card: `<div style="border: 1px solid #E2E8F0; padding: 20px; margin-bottom: 25px; border-radius: 8px; background-color: #F8FAFC;">`
+        - Debate box: Each adviser's turn must use the distinct left-bordered styling:
+          - Contrarian: `border-left: 4px solid #EF4444; background: #FEF2F2; padding: 15px; margin-bottom: 15px;` (Red border)
+          - First-Principles: `border-left: 4px solid #64748B; background: #F8FAFC; padding: 15px; margin-bottom: 15px;` (Slate border)
+          - Expansionist: `border-left: 4px solid #10B981; background: #ECFDF5; padding: 15px; margin-bottom: 15px;` (Green border)
+          - Outsider: `border-left: 4px solid #8B5CF6; background: #F5F3FF; padding: 15px; margin-bottom: 15px;` (Purple border)
+          - Executor: `border-left: 4px solid #3B82F6; background: #EFF6FF; padding: 15px; margin-bottom: 15px;` (Blue border)
+        - Chairman's Call: Gold-framed box: `<div style="background-color: #FDFBF7; border: 1px solid #E2D1B6; border-left: 6px solid #C5A880; padding: 25px; border-radius: 8px; margin-top: 30px;">`
         
-        DEL 2 — KONSULENT-ANALYSE AF DE NYE KANDIDATER (OP TIL 10 SCREENEDE)
-        For hver kandidat skal du udarbejde: Investeringscase, Økonomisk gennemgang, Pipeline/Udsigter, Risici, Grafisk analyse (momentum og langsigtet kurve), samt præcis 2 klikbare links (fx til Seeking Alpha: `<a href="https://seekingalpha.com/symbol/TICKER" style="color:#C5A880;text-decoration:none;">Seeking Alpha</a>`).
+        REPORT OUTLINE (ENGLISH):
         
-        DEL 3 — LLM COUNCIL DEBAT (TOP-3)
-        Udvælg de Top-3 mest lovende aktiver. Kør en dyb, intens og karakterdreven debat baseret på dine 5 rådgivere (Contrarian, First-Principles, Expansionist, Outsider, Executor) [3]. Sørg for at bruge de farvekodede venstregrund-rammer for hver rådgivers boks.
+        <h1>🗳️ LLM Council Strategic Briefing (4x25% Model)</h1>
+        <p><strong>Prepared exclusively for:</strong> Wazir</p>
+        <p><strong>Focus tonight:</strong> {category} (Deficit: {deficit:.2f}%)</p>
         
-        DEL 4 — FORMANDENS AFGØRENDE DEKRET
-        Formanden tager den endelige beslutning i en guld-indrammet boks (`border-left: 6px solid #C5A880; background: #FDFBF7;`) [3]. Specificer de næste præcise 7-dages handlingstrin på Saxo Investor [3].
+        <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
-        Returner KUN den rå HTML-kode, uden nogen "```html" eller kommentarer uden for HTML-koden.
+        <h2>SECTION 1 — PORTFOLIO DIAGNOSTIC & INDIRECT EXPOSURES</h2>
+        Analyze Wazir's current holdings and how they map to the 21 strategic sub-sectors [3]. Do existing assets (like FLSmidth or NKT) already provide satisfactory indirect exposure to the focus theme (e.g. materials/metals) [3]? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain why the royalty model (like WPM/RGLD) or defensive mines are superior.
+        
+        <h2>SECTION 2 — DEEP-DIVE CONSULTANT ANALYSIS (UP TO 10 SCREENED CANDIDATES)</h2>
+        For each candidate, write an elegant card covering:
+        1. <strong>Investment Case</strong> (How it balances Wazir's current assets).
+        2. <strong>Financial Highlights</strong> (Omsætningsvækst, marginer, cash flow based on live data).
+        3. <strong>Future Outlook & Pipeline</strong>.
+        4. <strong>Risk Assessment</strong>.
+        5. <strong>Momentum & Trend Analysis</strong> (3-month momentum vs. 3-year growth trajectory).
+        6. <strong>Analyst Insight & Sources</strong>: Insert exactly 2 clickable links structured beautifully in HTML (e.g. `<a href="https://seekingalpha.com/symbol/TICKER" style="color: #C5A880; text-decoration: none; font-weight: bold;">Seeking Alpha</a>`).
+        
+        <h2>SECTION 3 — THE ASYNCHRONOUS COUNCIL DEBATE (TOP-3)</h2>
+        Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs [3]. Show conflict, arguments on valuation, capex, and macro timing.
+        
+        <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (ANBEFALING)</h2>
+        The Chairman's final clear directive enclosed in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for Wazir's Saxo Investor account over the next 7 days [3].
+        
+        Return ONLY the raw HTML code. Do NOT enclose in markdown tags like "```html".
         """
 
         headers = {'Content-Type': 'application/json'}
@@ -518,19 +552,19 @@ class CouncilAgent:
             if 'candidates' in data and len(data['candidates']) > 0:
                 raw_html = data['candidates'][0]['content']['parts'][0]['text']
                 return raw_html.replace("```html", "").replace("```", "").strip()
-            return "<h3>Fejl</h3><p>Modtog uventet format fra Gemini.</p>"
+            return "<h3>Error</h3><p>Could not parse HTML from Gemini.</p>"
         except Exception as e:
-            return f"<h3>Systemfejl</h3><p>{str(e)}</p>"
+            return f"<h3>System Error</h3><p>{str(e)}</p>"
 
 
 # =====================================================================
-#  PODCAST AGENT (OPGRADERET TIL ENGELSK & HØJ DYNAMIK)
+#  PODCAST AGENT (HIGH-ENERGY CNBC/BLOOMBERG ENGLISH TALKSHOW)
 # =====================================================================
 class PodcastAgent:
     """
-    Beder Gemini omskrive HTML-rapporten til et samtalemanuskript (JSON) på ENGELSK.
-    Engelske stemmer giver en uforligneligt bedre, mere menneskelig og dynamisk lydoplevelse,
-    og tillader fulde personlige introduktioner af Wazir (vært) og rådsmedlemmerne.
+    Transformerer nyhedsbrevs-rapporten til et levende, dramatisk 
+    og top-professionelt engelsk podcast-manuskript, og genererer en 
+    flersproget MP3-fil med de absolut bedste amerikanske/britiske stemmer.
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -538,36 +572,44 @@ class PodcastAgent:
 
     def generate_script(self, report_html: str) -> list:
         prompt = f"""
-        You are an elite financial podcast producer. Translate and rewrite this Danish HTML investment report into a highly engaging, professional, and natural podcast script in ENGLISH [3].
+        You are an award-winning podcast producer for a high-energy financial talkshow on CNBC or Bloomberg [3].
+        Your job is to transform the following Danish/English investment report into a highly dynamic, dramatic, and elite-level audio script in ENGLISH [3]:
         
-        Danish HTML Report:
+        Report context:
         {report_html}
         
-        PODCAST REQUIREMENTS:
-        1. Cast & Roles (Must introduce themselves at the start) [3]:
-           - "Host" (Introduce himself as Wazir, your friendly financial host, moderating the debate) [3].
-           - "Contrarian" (Introduce himself as the critical, risk-obsessed, skeptical mind of the council) [3].
-           - "Chairman" (Introduce herself as the calm, wise, authoritative chairwoman who makes the final decision) [3].
-        2. Format:
-           - The podcast MUST start with a warm welcome and brief self-introductions by the Host, then the Contrarian, then the Chairman [3].
-           - Keep the tone highly conversational, like an elite Bloomberg or Wall Street Journal podcast.
-           - Use natural filler words ("well", "umm", "actually", "right", "you know") to make it sound organic [3].
-           - They should actively debate the investor's current 4x25% allocation, the 21 specific sub-sectors (such as Mining royalty vs. Copper) [3], the Sharia & Saxo restrictions, and the Top-3 candidates [3].
+        SHOW STRUCTURE & CAST:
+        - Moderators: 
+          1. "Sarah" (An extremely sharp, curious, and professional financial journalist).
+          2. "Mark" (A hardcore, direct, fast-talking Bloomberg-style market analyst).
+        - Panelists (The 5 advisers - must have highly distinct voices and personalities):
+          1. "Contrarian": Pessimistic. Looks for high P/E multiples, market tops, bubbles. Interrupts with his signature line: "But what if the market turns tomorrow?" [3]
+          2. "First-Principles": Cold, purely logical. Focuses on the math, 4x25% model, and debt filters [3].
+          3. "Expansionist": Extremely bullish and aggressive. Hates cash. Wants to deploy capital now [3]!
+          4. "Outsider": Big picture strategist. Analyzes how Wazir's other holdings (like NKT and FLS) overlap [3], and loves royalty streams over dirty operations.
+          5. "Executor": Highly practical. Focuses on Saxo Bank tradeability, execution, and Dollar-Cost Averaging [3].
+          
+        DIALOGUE RULES (TO ENSURE HIGHEST QUALITY NEURAL TTS PERFORMANCE):
+        - The show MUST start with Sarah and Mark welcoming the audience and having the guests briefly introduce themselves and their philosophies [3].
+        - Direct the discussion as an active debate. Let the Expansionist and Contrarian argue aggressively over timing, while First-Principles steps in as a factual referee [3].
+        - The characters must refer to the portfolio's VIP client as "Wazir" [3].
+        - Use conversational speech patterns, verbal interruptions, natural filler words ("umm", "well", "look", "right", "like") to break the mechanical robot-feeling of the TTS [3].
+        - The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and providing a clear, step-by-step 7-day action plan for Wazir's Saxo Investor account [3].
         
-        You MUST return the output ONLY as a raw, valid JSON list of dictionaries, with no markdown block formatting (no ```json).
+        Output MUST be a raw, valid JSON list of dictionaries with no formatting tags like "```json".
         
-        Example output format:
+        JSON Structure:
         [
-          {{"speaker": "Host", "text": "Welcome back to the LLM Council daily briefing. I am your host, Wazir..."}},
-          {{"speaker": "Contrarian", "text": "Hi everyone, I'm the resident skeptic here to pop some bubbles..."}},
-          {{"speaker": "Chairman", "text": "And I'm the Chairman, here to keep us focused on the long-term plan..."}},
-          {{"speaker": "Host", "text": "Excellent. Now, let's look at the portfolio. We've got a major gap..."}}
+          {{"speaker": "Sarah", "text": "Welcome to the LLM Council briefing. I am Sarah..."}},
+          {{"speaker": "Mark", "text": "And I'm Mark. Today we are looking at Wazir's asset allocation..."}},
+          {{"speaker": "Contrarian", "text": "Hello everyone, and remember: optimism is a bubble..."}},
+          {{"speaker": "Expansionist", "text": "Oh, come on! Cash is trash, we need to buy now..."}}
         ]
         """
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
-            response = requests.post(self.gemini_url, headers=headers, json=payload, timeout=95)
+            response = requests.post(self.gemini_url, headers=headers, json=payload, timeout=90)
             response.raise_for_status()
             data = response.json()
             if 'candidates' in data and len(data['candidates']) > 0:
@@ -581,23 +623,26 @@ class PodcastAgent:
 
     async def compile_audio(self, script_json: list, output_filename: str = "llm_council_podcast.mp3"):
         """
-        Kompilerer det engelske manuskript til en dynamisk MP3-fil ved brug af 
-        Microsofts absolut bedste og mest virkelighedstro neurale amerikanske stemmer.
+        Kompilerer manuskriptet til en MP3-fil ved brug af Microsofts mest
+        avancerede britiske og amerikanske herre- og damestemmer.
         """
         voice_map = {
-            "Host": "en-US-AndrewNeural",      # Professionel, engageret amerikansk herrestemme
-            "Contrarian": "en-US-BrianNeural", # Dyb, mere markant og skeptisk herrestemme
-            "Chairman": "en-US-AvaNeural"      # Varm, rolig og klog kvindestemme
+            "Sarah": "en-US-EmmaNeural",          # CNBC journalist
+            "Mark": "en-GB-RyanNeural",           # British Bloomberg analyst
+            "Contrarian": "en-US-BrianNeural",     # Deep, skeptical male
+            "First-Principles": "en-US-GuyNeural", # Fact-based, dry male
+            "Expansionist": "en-US-AndrewNeural",  # High-energy, bullish male
+            "Outsider": "en-GB-SoniaNeural",       # British, strategic female
+            "Executor": "en-US-EricNeural"         # Grounded, practical male
         }
-        print("Kompilerer engelske lydfiler via edge-tts...")
+        print("Kompilerer engelske lydfiler med edge-tts...")
         combined_audio = b""
         for turn in script_json:
-            speaker = turn.get("speaker", "Host")
+            speaker = turn.get("speaker", "Sarah")
             text = turn.get("text", "")
-            voice = voice_map.get(speaker, "en-US-AndrewNeural")
+            voice = voice_map.get(speaker, "en-US-EmmaNeural")
             
-            # Gør den contrarianske stemme en smule langsommere for at øge det dramatiske modspil
-            rate = "-4%" if speaker == "Contrarian" else "+0%"
+            rate = "-5%" if speaker == "Contrarian" else "+0%"
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
@@ -606,7 +651,7 @@ class PodcastAgent:
             
         with open(output_filename, "wb") as f:
             f.write(combined_audio)
-        print(f"Podcast færdigbygget på engelsk: '{output_filename}'")
+        print(f"CNBC-Style Podcast compiled successfully: '{output_filename}'")
 
 
 # =====================================================================
@@ -760,7 +805,7 @@ def main():
             print("Advarsel: GEMINI_API_KEY mangler.")
 
         # 10. Send HTML-rapport og MP3-podcast til din indbakke
-        subject = f"[LLM Council] Strategisk Rapport - Fokus: {focus_category}"
+        subject = f"[LLM Council] Strategic Briefing - Focus on {focus_category}"
         DeliveryAgent.send_email(
             subject=subject, 
             html_content=council_report_html, 
@@ -777,7 +822,7 @@ def main():
             <pre style="background-color: #FFFFFF; border: 1px solid #FEE2E2; padding: 15px; border-radius: 5px; overflow-x: auto; color: #991B1B; font-size: 13px;">{error_msg}</pre>
         </div>
         """
-        DeliveryAgent.send_email("[System Error] LLM Council fejlede", error_html)
+        DeliveryAgent.send_email("[System Error] LLM Council failed to run", error_html)
 
 
 if __name__ == "__main__":
