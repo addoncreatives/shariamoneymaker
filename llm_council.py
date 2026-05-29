@@ -213,7 +213,6 @@ class GoogleSheetsAgent:
                 matched_sector = False
                 for target_s in TARGET_SUBSECTORS:
                     norm_target = normalize_string(target_s)
-                    # Delvis split-søgning (f.eks. 'kobber' i 'Industrielle metaller / kobber')
                     parts = [normalize_string(p) for p in re.split(r'[/|]', target_s)]
                     if norm_target in combined_text or any(p in combined_text for p in parts if p):
                         sector_distribution[target_s] += row_weight
@@ -314,7 +313,7 @@ class ScreenerComplianceAgent:
 
     def map_to_category_and_sector(self, symbol: str, sector: str, industry: str) -> tuple:
         """
-        Mapper automatisk selskabet til både 4x25% hovedklassen og en af dine 21 delsektorer.
+        Mapper selskabet til både 4x25% hovedklassen og en af dine 21 delsektorer.
         """
         sym = symbol.upper()
         sec_l = sector.lower() if sector else ""
@@ -324,14 +323,14 @@ class ScreenerComplianceAgent:
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             return "Sukuk", "Sukuk"
             
-        # 2. Råvarer & Mining royalty / Metaller
+        # 2. Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining royalty"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrielle metaller / kobber"
 
-        # 3. Aktier delsektor-mappings
+        # 3. Aktier
         if sym == "VWS.CO" or "wind" in ind_l:
             return "Aktier", "Vind"
         if sym == "NKT.CO" or "cable" in ind_l or "electrical" in ind_l:
@@ -486,11 +485,11 @@ class CouncilAgent:
         DEL 1 — DELSEKTOR DIAGNOSE & INDIREKTE EKSPONERING
         Analyser investors beholdninger mod de 21 delsektorer [3]. Ejer investor f.eks. selskaber (som FLSmidth eller NKT), der reelt allerede giver indirekte beskyttelse/råvareeksponering? Er visse delsektorer tomme? Diskuter Saxo Bank og Sharia som en begrænsende barriere.
         
-        DEL 2 — KONSULENT-ANALYSE AF DE NYE KANDIDATER (OP TIL 10 SKEENEDE)
+        DEL 2 — KONSULENT-ANALYSE AF DE NYE KANDIDATER (OP TIL 10 SCREENEDE)
         For hver kandidat skal du udarbejde: Investeringscase, Økonomisk gennemgang, Pipeline/Udsigter, Risici, Grafisk analyse (momentum og langsigtet kurve), samt præcis 2 klikbare links (fx til Seeking Alpha: `<a href="https://seekingalpha.com/symbol/TICKER" style="color:#C5A880;text-decoration:none;">Seeking Alpha</a>`).
         
         DEL 3 — LLM COUNCIL DEBAT (TOP-3)
-        Udvælg de Top-3 mest lovende aktiver. Kør en dyb, intens og karakterdreven debat baseret på dine 5 rådgivere (Contrarian, First-Principles, Expansionist, Outsider, Executor) [3]. Brug de definerede farvekodede venstregrund-rammer for hver rådgivers boks.
+        Udvælg de Top-3 mest lovende aktiver. Kør en dyb, intens og karakterdreven debat baseret på dine 5 rådgivere (Contrarian, First-Principles, Expansionist, Outsider, Executor) [3]. Sørg for at bruge de farvekodede venstregrund-rammer for hver rådgivers boks.
         
         DEL 4 — FORMANDENS AFGØRENDE DEKRET
         Formanden tager den endelige beslutning i en guld-indrammet boks (`border-left: 6px solid #C5A880; background: #FDFBF7;`) [3]. Specificer de næste præcise 7-dages handlingstrin på Saxo Investor [3].
