@@ -31,7 +31,7 @@ try:
 except ImportError:
     import subprocess
     print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "edge-tts"])
+    subprocess.call([sys.executable, "-m", "pip", "install", "edge-tts"])
     import edge_tts
 
 import yfinance as yf
@@ -82,9 +82,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-EMAIL_SENDER = os.getenv("EMAIL_SENDER", "wazir.ilyas@gmail.com")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+if not EMAIL_SENDER or EMAIL_SENDER.strip() == "":
+    EMAIL_SENDER = "wazir.ilyas@gmail.com"
+
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
+if not EMAIL_RECEIVER or EMAIL_RECEIVER.strip() == "":
+    EMAIL_RECEIVER = "addoncreatives@gmail.com"
+
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "addoncreatives@gmail.com")
 
 
 # =====================================================================
@@ -95,14 +101,14 @@ def normalize_string(s: str) -> str:
         return ""
     s = str(s).lower().strip()
     s = s.replace("og", "and").replace("&", "and")
-    s = s.replace("'", "")
-    s = re.sub(r'[^a-z0-9æøå]', '', s)
-    s = s.replace("etfer", "etf").replace("etfs", "etf")
+    s = s.replace("'", "")  # Fjerner apostrof
+    s = re.sub(r'[^a-z0-9æøå]', '', s)  # Bevarer kun alfanumeriske tegn og nordiske bogstaver
+    s = s.replace("etfer", "etf").replace("etfs", "etf")  # Standardiserer ETF-varianter
     return s
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT
+#  GOOGLE SHEETS / EXCEL AGENT (OPDATERET MED TRE-SPORET SØGNING)
 # =====================================================================
 class GoogleSheetsAgent:
     def __init__(self, sheet_id: str):
@@ -147,6 +153,7 @@ class GoogleSheetsAgent:
             raw_df = self._read_tab_as_df("Beholdninger")
             df = self._clean_and_align_df(raw_df, "ticker")
             
+            # Find de nødvendige kolonner
             drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
             aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
             sektor_col = self._find_column_by_keyword(df, "sektor")
@@ -156,6 +163,7 @@ class GoogleSheetsAgent:
             if not aktivklasse_col or not weight_col:
                 raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i Google Sheet.")
 
+            # Rense-funktioner til talværdier
             def clean_number(val):
                 if pd.isna(val) or val == "":
                     return 0.0
@@ -175,6 +183,7 @@ class GoogleSheetsAgent:
             df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
             df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
+            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK) for absolut matematisk præcision
             total_mv = df['Cleaned_MV'].sum()
             total_weight = df['Cleaned_Weight'].sum()
 
@@ -183,7 +192,7 @@ class GoogleSheetsAgent:
             elif total_mv > 0.0:
                 df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
 
-            # 1. Beregn 4x25% Hovedkasser
+            # 4x25% Portfolio Distribution
             portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
             # 2. Beregn 21 Delsektorer
             sector_distribution = {s: 0.0 for s in TARGET_SUBSECTORS}
@@ -193,13 +202,14 @@ class GoogleSheetsAgent:
                 if row_weight <= 0.0:
                     continue
 
+                # Samler tekstværdier på tværs af de tre definerende kolonner
                 drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
                 aktivklasse_val = normalize_string(row.get(aktivklasse_col, ""))
                 sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
 
                 combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
 
-                # 4x25% Fordeling
+                # Robust 4x25%-sortering baseret på din fane-struktur
                 if "sukuk" in combined_text:
                     portfolio_distribution["Sukuk"] += row_weight
                 elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
@@ -207,6 +217,7 @@ class GoogleSheetsAgent:
                 elif any(word in combined_text for word in ["kontant", "cash", "private"]):
                     portfolio_distribution["Kontanter/Private"] += row_weight
                 else:
+                    # Almindelige aktier og aktie-ETF'er (f.eks. MSAU, IGDA) falder herind
                     portfolio_distribution["Aktier"] += row_weight
 
                 # 21 Delsektor-fordeling
@@ -312,25 +323,19 @@ class ScreenerComplianceAgent:
         self.tickers = tickers
 
     def map_to_category_and_sector(self, symbol: str, sector: str, industry: str) -> tuple:
-        """
-        Mapper selskabet til både 4x25% hovedklassen og en af dine 21 delsektorer.
-        """
         sym = symbol.upper()
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
-        # 1. Sukuk
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             return "Sukuk", "Sukuk"
             
-        # 2. Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining royalty"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrielle metaller / kobber"
 
-        # 3. Aktier
         if sym == "VWS.CO" or "wind" in ind_l:
             return "Aktier", "Vind"
         if sym == "NKT.CO" or "cable" in ind_l or "electrical" in ind_l:
@@ -358,7 +363,6 @@ class ScreenerComplianceAgent:
         if "logistics" in ind_l or "shipping" in ind_l:
             return "Aktier", "Logistik"
             
-        # Global/Regional ETF'er
         if sym in ["IGDA.L", "ISWD.L", "UMMA"]:
             return "Aktier", "ETF - global"
         if sym in ["HLAL", "ISUS.L", "MSAU.L"]:
@@ -614,6 +618,8 @@ class DeliveryAgent:
                 msg.attach(part)
 
         try:
+            # Sikker og verificeret SMTP log-overvågning
+            print(f"Forbinder til SMTP server ({SMTP_SERVER}:{SMTP_PORT}) med afsender-login: {EMAIL_SENDER}...")
             server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
             server.starttls()
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
