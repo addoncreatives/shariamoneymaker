@@ -90,7 +90,10 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 if not EMAIL_RECEIVER or EMAIL_RECEIVER.strip() == "":
     EMAIL_RECEIVER = "addoncreatives@gmail.com"
 
+# Hent og rens adgangskoden (Sikkerhedsnet mod mellemrum)
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+if EMAIL_PASSWORD:
+    EMAIL_PASSWORD = EMAIL_PASSWORD.replace(" ", "").strip()
 
 
 # =====================================================================
@@ -101,9 +104,9 @@ def normalize_string(s: str) -> str:
         return ""
     s = str(s).lower().strip()
     s = s.replace("og", "and").replace("&", "and")
-    s = s.replace("'", "")  # Fjerner apostrof
-    s = re.sub(r'[^a-z0-9æøå]', '', s)  # Bevarer kun alfanumeriske tegn og nordiske bogstaver
-    s = s.replace("etfer", "etf").replace("etfs", "etf")  # Standardiserer ETF-varianter
+    s = s.replace("'", "")
+    s = re.sub(r'[^a-z0-9æøå]', '', s)
+    s = s.replace("etfer", "etf").replace("etfs", "etf")
     return s
 
 
@@ -192,7 +195,7 @@ class GoogleSheetsAgent:
             elif total_mv > 0.0:
                 df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
 
-            # 4x25% Portfolio Distribution
+            # 1. Beregn 4x25% Hovedkasser
             portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
             # 2. Beregn 21 Delsektorer
             sector_distribution = {s: 0.0 for s in TARGET_SUBSECTORS}
@@ -327,15 +330,18 @@ class ScreenerComplianceAgent:
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
+        # 1. Sukuk
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             return "Sukuk", "Sukuk"
             
+        # 2. Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining royalty"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrielle metaller / kobber"
 
+        # 3. Aktier
         if sym == "VWS.CO" or "wind" in ind_l:
             return "Aktier", "Vind"
         if sym == "NKT.CO" or "cable" in ind_l or "electrical" in ind_l:
@@ -363,6 +369,7 @@ class ScreenerComplianceAgent:
         if "logistics" in ind_l or "shipping" in ind_l:
             return "Aktier", "Logistik"
             
+        # Global/Regional ETF'er
         if sym in ["IGDA.L", "ISWD.L", "UMMA"]:
             return "Aktier", "ETF - global"
         if sym in ["HLAL", "ISUS.L", "MSAU.L"]:
@@ -448,7 +455,7 @@ class ScreenerComplianceAgent:
         approved_stocks = []
         for ticker in self.tickers:
             time.sleep(1.5)
-            result = self.screen_ticker(ticker)
+            result = self.screen_ticker(symbol=ticker)
             if result["passed"] and result["category"] == target_category:
                 approved_stocks.append(result)
         return approved_stocks
@@ -517,12 +524,13 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  PODCAST AGENT (FREE NEURAL TTS COPMILER)
+#  PODCAST AGENT (OPGRADERET TIL ENGELSK & HØJ DYNAMIK)
 # =====================================================================
 class PodcastAgent:
     """
-    Beder Gemini omskrive HTML-rapporten til et samtalemanuskript (JSON),
-    og genererer derefter en ægte flerstems MP3-podcast ved brug af edge-tts.
+    Beder Gemini omskrive HTML-rapporten til et samtalemanuskript (JSON) på ENGELSK.
+    Engelske stemmer giver en uforligneligt bedre, mere menneskelig og dynamisk lydoplevelse,
+    og tillader fulde personlige introduktioner af Wazir (vært) og rådsmedlemmerne.
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -530,28 +538,36 @@ class PodcastAgent:
 
     def generate_script(self, report_html: str) -> list:
         prompt = f"""
-        Du er en elitesurfer og podcast-producer. Omskriv denne HTML-investeringsrapport til et skarpt, utroligt medrivende og naturligt samtalemanuskript på DANSK:
+        You are an elite financial podcast producer. Translate and rewrite this Danish HTML investment report into a highly engaging, professional, and natural podcast script in ENGLISH [3].
+        
+        Danish HTML Report:
         {report_html}
         
-        KRAV TIL ROLLERNE:
-        - "Vært": En nysgerrig finansvært.
-        - "Contrarian": Den skeptiske, forsigtige djævlens advokat fra rådet [3].
-        - "Formand": Den vise formand, der skærer igennem [3].
+        PODCAST REQUIREMENTS:
+        1. Cast & Roles (Must introduce themselves at the start) [3]:
+           - "Host" (Introduce himself as Wazir, your friendly financial host, moderating the debate) [3].
+           - "Contrarian" (Introduce himself as the critical, risk-obsessed, skeptical mind of the council) [3].
+           - "Chairman" (Introduce herself as the calm, wise, authoritative chairwoman who makes the final decision) [3].
+        2. Format:
+           - The podcast MUST start with a warm welcome and brief self-introductions by the Host, then the Contrarian, then the Chairman [3].
+           - Keep the tone highly conversational, like an elite Bloomberg or Wall Street Journal podcast.
+           - Use natural filler words ("well", "umm", "actually", "right", "you know") to make it sound organic [3].
+           - They should actively debate the investor's current 4x25% allocation, the 21 specific sub-sectors (such as Mining royalty vs. Copper) [3], the Sharia & Saxo restrictions, and the Top-3 candidates [3].
         
-        Dialogen skal flyde som en Bloomberg-podcast (talesprog, korte bemærkninger, let ping-pong). De skal diskutere Saxo-begrænsninger, Sharia-regler, de 21 delsektorer, og de konkrete top-aktier [3].
+        You MUST return the output ONLY as a raw, valid JSON list of dictionaries, with no markdown block formatting (no ```json).
         
-        Du SKAL levere resultatet som en rå, valid JSON-liste af ordbøger uden forklaringer før eller efter.
-        Eksempel:
+        Example output format:
         [
-          {{"speaker": "Vært", "text": "Velkommen til rådets ugentlige briefing..."}},
-          {{"speaker": "Contrarian", "text": "Ja, og lad os nu lige trække vejret..."}},
-          {{"speaker": "Formand", "text": "Formandskabet har vurderet tallene..."}}
+          {{"speaker": "Host", "text": "Welcome back to the LLM Council daily briefing. I am your host, Wazir..."}},
+          {{"speaker": "Contrarian", "text": "Hi everyone, I'm the resident skeptic here to pop some bubbles..."}},
+          {{"speaker": "Chairman", "text": "And I'm the Chairman, here to keep us focused on the long-term plan..."}},
+          {{"speaker": "Host", "text": "Excellent. Now, let's look at the portfolio. We've got a major gap..."}}
         ]
         """
         headers = {'Content-Type': 'application/json'}
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
-            response = requests.post(self.gemini_url, headers=headers, json=payload, timeout=90)
+            response = requests.post(self.gemini_url, headers=headers, json=payload, timeout=95)
             response.raise_for_status()
             data = response.json()
             if 'candidates' in data and len(data['candidates']) > 0:
@@ -564,28 +580,33 @@ class PodcastAgent:
             return []
 
     async def compile_audio(self, script_json: list, output_filename: str = "llm_council_podcast.mp3"):
+        """
+        Kompilerer det engelske manuskript til en dynamisk MP3-fil ved brug af 
+        Microsofts absolut bedste og mest virkelighedstro neurale amerikanske stemmer.
+        """
         voice_map = {
-            "Vært": "da-DK-JeppeNeural",
-            "Contrarian": "da-DK-JeppeNeural",
-            "Formand": "da-DK-ChristelNeural"
+            "Host": "en-US-AndrewNeural",      # Professionel, engageret amerikansk herrestemme
+            "Contrarian": "en-US-BrianNeural", # Dyb, mere markant og skeptisk herrestemme
+            "Chairman": "en-US-AvaNeural"      # Varm, rolig og klog kvindestemme
         }
-        print("Kompilerer lydfiler via edge-tts...")
+        print("Kompilerer engelske lydfiler via edge-tts...")
         combined_audio = b""
         for turn in script_json:
-            speaker = turn.get("speaker", "Vært")
+            speaker = turn.get("speaker", "Host")
             text = turn.get("text", "")
-            voice = voice_map.get(speaker, "da-DK-JeppeNeural")
+            voice = voice_map.get(speaker, "en-US-AndrewNeural")
             
-            rate = "-5%" if speaker == "Contrarian" else "+0%"
+            # Gør den contrarianske stemme en smule langsommere for at øge det dramatiske modspil
+            rate = "-4%" if speaker == "Contrarian" else "+0%"
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     combined_audio += chunk["data"]
-            time.sleep(0.3)
+            time.sleep(0.4)
             
         with open(output_filename, "wb") as f:
             f.write(combined_audio)
-        print(f"Podcast klar: '{output_filename}'")
+        print(f"Podcast færdigbygget på engelsk: '{output_filename}'")
 
 
 # =====================================================================
@@ -618,7 +639,6 @@ class DeliveryAgent:
                 msg.attach(part)
 
         try:
-            # Sikker og verificeret SMTP log-overvågning
             print(f"Forbinder til SMTP server ({SMTP_SERVER}:{SMTP_PORT}) med afsender-login: {EMAIL_SENDER}...")
             server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
             server.starttls()
@@ -726,8 +746,8 @@ def main():
                 sector_distribution_str=sector_distribution_str
             )
             
-            # 9. Generer automatisk lyd-podcast
-            print("Igangsætter podcast-produktion...")
+            # 9. Generer automatisk lyd-podcast (på engelsk for optimal dynamik)
+            print("Igangsætter engelsk podcast-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             script = podcast_agent.generate_script(council_report_html)
             if script:
