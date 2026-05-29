@@ -4,9 +4,9 @@ import time
 import io
 import re
 import json
+import datetime
 import traceback
 import smtplib
-import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -22,17 +22,6 @@ except ImportError:
     print("Sikkerhedsnet: openpyxl mangler. Installerer automatisk...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
     import openpyxl
-
-# ---------------------------------------------------------------------
-#  SIKKERHEDSNET: Automatisk installation af edge-tts, hvis det mangler
-# ---------------------------------------------------------------------
-try:
-    import edge_tts
-except ImportError:
-    import subprocess
-    print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "edge-tts"])
-    import edge_tts
 
 import yfinance as yf
 import requests
@@ -112,9 +101,9 @@ def normalize_string(s: str) -> str:
         return ""
     s = str(s).lower().strip()
     s = s.replace("og", "and").replace("&", "and")
-    s = s.replace("'", "")  # Fjerner apostrof
-    s = re.sub(r'[^a-z0-9æøå]', '', s)  # Bevarer kun alfanumeriske tegn og nordiske bogstaver
-    s = s.replace("etfer", "etf").replace("etfs", "etf")  # Standardiserer ETF-varianter
+    s = s.replace("'", "")
+    s = re.sub(r'[^a-z0-9æøå]', '', s)
+    s = s.replace("etfer", "etf").replace("etfs", "etf")
     return s
 
 
@@ -174,7 +163,6 @@ class GoogleSheetsAgent:
             if not aktivklasse_col or not weight_col:
                 raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i Google Sheet.")
 
-            # Rense-funktioner til talværdier
             def clean_number(val):
                 if pd.isna(val) or val == "":
                     return 0.0
@@ -194,7 +182,7 @@ class GoogleSheetsAgent:
             df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
             df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
-            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK) for absolut matematisk præcision
+            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK)
             total_mv = df['Cleaned_MV'].sum()
             total_weight = df['Cleaned_Weight'].sum()
 
@@ -220,7 +208,7 @@ class GoogleSheetsAgent:
 
                 combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
 
-                # Robust 4x25%-sortering baseret på din fane-struktur
+                # Robust 4x25%-sortering
                 if "sukuk" in combined_text:
                     portfolio_distribution["Sukuk"] += row_weight
                 elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
@@ -228,17 +216,14 @@ class GoogleSheetsAgent:
                 elif any(word in combined_text for word in ["kontant", "cash", "private"]):
                     portfolio_distribution["Kontanter/Private"] += row_weight
                 else:
-                    # Almindelige aktier og aktie-ETF'er (f.eks. MSAU, IGDA) falder herind
                     portfolio_distribution["Aktier"] += row_weight
 
                 # 21 Delsektor-fordeling
-                matched_sector = False
                 for target_s in TARGET_SUBSECTORS:
                     norm_target = normalize_string(target_s)
                     parts = [normalize_string(p) for p in re.split(r'[/|]', target_s)]
                     if norm_target in combined_text or any(p in combined_text for p in parts if p):
                         sector_distribution[target_s] += row_weight
-                        matched_sector = True
                         break
 
             return portfolio_distribution, sector_distribution
@@ -301,27 +286,43 @@ class GoogleSheetsAgent:
 
 
 # =====================================================================
-#  PORTFOLIO MANAGER AGENT
+#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION - FRISKE VINKLER)
 # =====================================================================
 class PortfolioManagerAgent:
+    """
+    Identificerer alle underallokerede kategorier og roterer fokusset
+    systematisk fra dag til dag baseret på årets kalenderdag.
+    Dette sikrer konstant skiftende og friske vinkler i din indbakke [3].
+    """
     def __init__(self, current: dict, target: dict):
         self.current = current
         self.target = target
 
     def identify_underweighted_focus(self) -> tuple:
-        max_deficit = -999.0
-        focus_category = None
+        underweight_candidates = []
         for category, target_val in self.target.items():
             curr_val = self.current.get(category, 0.0)
             deficit = target_val - curr_val
-            if deficit > max_deficit:
-                max_deficit = deficit
-                focus_category = category
-        return focus_category, max_deficit
+            # Vi fokuserer kun på reelle gab (Aktier med 77.7% udelukkes automatisk)
+            if deficit > 0.0:
+                underweight_candidates.append((category, deficit))
+        
+        if not underweight_candidates:
+            return list(self.target.keys())[0], 0.0
+
+        # Sorter alfabetisk for stabil rotationsrækkefølge
+        underweight_candidates.sort(key=lambda x: x[0])
+
+        # Hent årets dagnummer (1-365) til matematisk rotation
+        day_of_year = datetime.datetime.now().timetuple().tm_yday
+        index = day_of_year % len(underweight_candidates)
+        
+        focus_category, deficit = underweight_candidates[index]
+        return focus_category, deficit
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (MAPPING AF DELSEKTORER)
+#  SCREENER & COMPLIANCE AGENT
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -338,18 +339,15 @@ class ScreenerComplianceAgent:
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
-        # 1. Sukuk
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             return "Sukuk", "Sukuk"
             
-        # 2. Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining royalty"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrielle metaller / kobber"
 
-        # 3. Aktier
         if sym == "VWS.CO" or "wind" in ind_l:
             return "Aktier", "Vind"
         if sym == "NKT.CO" or "cable" in ind_l or "electrical" in ind_l:
@@ -377,7 +375,6 @@ class ScreenerComplianceAgent:
         if "logistics" in ind_l or "shipping" in ind_l:
             return "Aktier", "Logistik"
             
-        # Global/Regional ETF'er
         if sym in ["IGDA.L", "ISWD.L", "UMMA"]:
             return "Aktier", "ETF - global"
         if sym in ["HLAL", "ISUS.L", "MSAU.L"]:
@@ -479,13 +476,14 @@ class CouncilAgent:
 
     def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str, sector_distribution_str: str) -> str:
         candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
+        english_category = DISPLAY_CATEGORIES.get(category, category)
         
         prompt = f"""
         You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, Wazir [3].
         
         THE INVESTOR PROFILE & MODEL:
         - Overarching Strategic Model: 4x25% (Equities, Sukuk, Commodities, Cash/Private) [3].
-        - Under Evaluation Tonight: {category} (Current Deficit: {deficit:.2f}%) [3].
+        - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%) [3].
         - Current Portfolio Allocations (4x25%): {current_portfolio_str} [3].
         
         THE INVESTOR'S 21 STRATEGIC SUB-SECTORS (DYNAMICALLY COMPUTED FROM THE SHEET):
@@ -503,7 +501,7 @@ class CouncilAgent:
         Brug udelukkende inline CSS-styling for maximum compatibility with Gmail [3].
         Design guidelines:
         - Main container: `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 25px; background-color: #ffffff; color: #334155; line-height: 1.6;">`
-        - Colors: Dark Slate Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`) [3].
+        - Colors: Dark Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`) [3].
         - Cards: Each of the screened candidates should be enclosed in a distinct card: `<div style="border: 1px solid #E2E8F0; padding: 20px; margin-bottom: 25px; border-radius: 8px; background-color: #F8FAFC;">`
         - Debate box: Each adviser's turn must use the distinct left-bordered styling:
           - Contrarian: `border-left: 4px solid #EF4444; background: #FEF2F2; padding: 15px; margin-bottom: 15px;` (Red border)
@@ -517,7 +515,7 @@ class CouncilAgent:
         
         <h1>🗳️ LLM Council Strategic Briefing (4x25% Model)</h1>
         <p><strong>Prepared exclusively for:</strong> Wazir</p>
-        <p><strong>Focus tonight:</strong> {category} (Deficit: {deficit:.2f}%)</p>
+        <p><strong>Focus tonight:</strong> {english_category} (Deficit: {deficit:.2f}%)</p>
         
         <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
@@ -533,10 +531,10 @@ class CouncilAgent:
         5. <strong>Momentum & Trend Analysis</strong> (3-month momentum vs. 3-year growth trajectory).
         6. <strong>Analyst Insight & Sources</strong>: Insert exactly 2 clickable links structured beautifully in HTML (e.g. `<a href="https://seekingalpha.com/symbol/TICKER" style="color: #C5A880; text-decoration: none; font-weight: bold;">Seeking Alpha</a>`).
         
-        <h2>SECTION 3 — THE ASYNCHRONOUS COUNCIL DEBATE (TOP-3)</h2>
+        <h2>SECTION 3 — THE ASYNCHRONOUS COUNCIL DEBAT (TOP-3)</h2>
         Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs [3]. Show conflict, arguments on valuation, capex, and macro timing.
         
-        <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (ANBEFALING)</h2>
+        <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (RECOMMENDATION)</h2>
         The Chairman's final clear directive enclosed in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for Wazir's Saxo Investor account over the next 7 days [3].
         
         Return ONLY the raw HTML code. Do NOT enclose in markdown tags like "```html".
@@ -558,100 +556,60 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  PODCAST AGENT (HIGH-ENERGY CNBC/BLOOMBERG ENGLISH TALKSHOW)
+#  PODCAST AGENT (PODCASTFY POWERED HIGH-ENERGY CNBC/BLOOMBERG TALKSHOW)
 # =====================================================================
 class PodcastAgent:
     """
-    Transformerer nyhedsbrevs-rapporten til et levende, dramatisk 
-    og top-professionelt engelsk podcast-manuskript, og genererer en 
-    flersproget MP3-fil med de absolut bedste amerikanske/britiske stemmer.
+    Leverages Podcastfy's highly advanced open-source codebase to generate 
+    the ultimate dynamic, high-energy financial podcast on English using Microsoft Edge TTS.
+    Sarah & Mark moderate, introduce the show, and challenge the council [3].
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={self.api_key}"
+        if self.api_key:
+            # Sørg for, at API-nøglerne er tilgængelige for LiteLLM under motorhjelmen
+            os.environ["GEMINI_API_KEY"] = self.api_key
+            os.environ["GOOGLE_API_KEY"] = self.api_key
 
-    def generate_script(self, report_html: str) -> list:
-        prompt = f"""
-        You are an award-winning podcast producer for a high-energy financial talkshow on CNBC or Bloomberg [3].
-        Your job is to transform the following Danish/English investment report into a highly dynamic, dramatic, and elite-level audio script in ENGLISH [3]:
+    def generate_podcast_audio(self, report_html: str) -> str:
+        # Vi importerer først her for at undgå unødige startforsinkelser i main thread
+        from podcastfy.client import generate_podcast
         
-        Report context:
-        {report_html}
-        
-        SHOW STRUCTURE & CAST:
-        - Moderators: 
-          1. "Sarah" (An extremely sharp, curious, and professional financial journalist).
-          2. "Mark" (A hardcore, direct, fast-talking Bloomberg-style market analyst).
-        - Panelists (The 5 advisers - must have highly distinct voices and personalities):
-          1. "Contrarian": Pessimistic. Looks for high P/E multiples, market tops, bubbles. Interrupts with his signature line: "But what if the market turns tomorrow?" [3]
-          2. "First-Principles": Cold, purely logical. Focuses on the math, 4x25% model, and debt filters [3].
-          3. "Expansionist": Extremely bullish and aggressive. Hates cash. Wants to deploy capital now [3]!
-          4. "Outsider": Big picture strategist. Analyzes how Wazir's other holdings (like NKT and FLS) overlap [3], and loves royalty streams over dirty operations.
-          5. "Executor": Highly practical. Focuses on Saxo Bank tradeability, execution, and Dollar-Cost Averaging [3].
-          
-        DIALOGUE RULES (TO ENSURE HIGHEST QUALITY NEURAL TTS PERFORMANCE):
-        - The show MUST start with Sarah and Mark welcoming the audience and having the guests briefly introduce themselves and their philosophies [3].
-        - Direct the discussion as an active debate. Let the Expansionist and Contrarian argue aggressively over timing, while First-Principles steps in as a factual referee [3].
-        - The characters must refer to the portfolio's VIP client as "Wazir" [3].
-        - Use conversational speech patterns, verbal interruptions, natural filler words ("umm", "well", "look", "right", "like") to break the mechanical robot-feeling of the TTS [3].
-        - The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and providing a clear, step-by-step 7-day action plan for Wazir's Saxo Investor account [3].
-        
-        Output MUST be a raw, valid JSON list of dictionaries with no formatting tags like "```json".
-        
-        JSON Structure:
-        [
-          {{"speaker": "Sarah", "text": "Welcome to the LLM Council briefing. I am Sarah..."}},
-          {{"speaker": "Mark", "text": "And I'm Mark. Today we are looking at Wazir's asset allocation..."}},
-          {{"speaker": "Contrarian", "text": "Hello everyone, and remember: optimism is a bubble..."}},
-          {{"speaker": "Expansionist", "text": "Oh, come on! Cash is trash, we need to buy now..."}}
-        ]
-        """
-        headers = {'Content-Type': 'application/json'}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        try:
-            response = requests.post(self.gemini_url, headers=headers, json=payload, timeout=90)
-            response.raise_for_status()
-            data = response.json()
-            if 'candidates' in data and len(data['candidates']) > 0:
-                raw_text = data['candidates'][0]['content']['parts'][0]['text']
-                raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-                return json.loads(raw_text)
-            return []
-        except Exception as e:
-            print(f"Fejl under manuskriptgenerering: {str(e)}")
-            return []
-
-    async def compile_audio(self, script_json: list, output_filename: str = "llm_council_podcast.mp3"):
-        """
-        Kompilerer manuskriptet til en MP3-fil ved brug af Microsofts mest
-        avancerede britiske og amerikanske herre- og damestemmer.
-        """
-        voice_map = {
-            "Sarah": "en-US-EmmaNeural",          # CNBC journalist
-            "Mark": "en-GB-RyanNeural",           # British Bloomberg analyst
-            "Contrarian": "en-US-BrianNeural",     # Deep, skeptical male
-            "First-Principles": "en-US-GuyNeural", # Fact-based, dry male
-            "Expansionist": "en-US-AndrewNeural",  # High-energy, bullish male
-            "Outsider": "en-GB-SoniaNeural",       # British, strategic female
-            "Executor": "en-US-EricNeural"         # Grounded, practical male
+        # CNBC & Bloomberg Style konfiguration til Podcastfy
+        custom_config = {
+            "word_count": 900,
+            "conversation_style": ["engaging", "fast-paced", "enthusiastic", "hardcore Bloomberg debate"],
+            "roles_person1": "Sarah, the curious financial journalist",
+            "roles_person2": "Mark, the hardcore market analyst",
+            "podcast_name": "LLM Council Briefing",
+            "podcast_tagline": "CNBC & Bloomberg Style Financial Talkshow",
+            "output_language": "English",
+            "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk"],
+            "user_instructions": (
+                "Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
+                "The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, Wazir [3]. "
+                "Then, they introduce and interview our 5 resident advisers: "
+                "Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
+                "First-Principles (the logical mathematician using raw numbers), "
+                "Expansionist (the highly bullish growth hunter wanting to deploy capital), "
+                "Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
+                "and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
+                "The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
+                "giving Wazir a highly clear, actionable next step for his Saxo account."
+            )
         }
-        print("Kompilerer engelske lydfiler med edge-tts...")
-        combined_audio = b""
-        for turn in script_json:
-            speaker = turn.get("speaker", "Sarah")
-            text = turn.get("text", "")
-            voice = voice_map.get(speaker, "en-US-EmmaNeural")
-            
-            rate = "-5%" if speaker == "Contrarian" else "+0%"
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    combined_audio += chunk["data"]
-            time.sleep(0.4)
-            
-        with open(output_filename, "wb") as f:
-            f.write(combined_audio)
-        print(f"CNBC-Style Podcast compiled successfully: '{output_filename}'")
+        
+        try:
+            print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS...")
+            audio_path = generate_podcast(
+                text=report_html,
+                tts_model="edge",  # Kører med Microsoft Edge TTS (100% gratis og utrolig levende på engelsk)
+                conversation_config=custom_config
+            )
+            return audio_path
+        except Exception as e:
+            print(f"Fejl under Podcastfy-generering: {str(e)}")
+            return None
 
 
 # =====================================================================
@@ -700,7 +658,7 @@ class DeliveryAgent:
 # =====================================================================
 def main():
     try:
-        print("Opstarter LLM Council 4x25% med delsektorer og Podcast...")
+        print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
         # 1. Hent investors aktuelle vægte samt de 21 delsektorer
@@ -716,7 +674,7 @@ def main():
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
         print(f"Watchlist: {watchlist_tickers}")
 
-        # 4. Find den mest undervægtede kasse i din 4x25%-struktur
+        # 4. Find den mest undervægtede kasse i din 4x25%-struktur (Tidsbaseret rotation!)
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
         print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
@@ -770,7 +728,7 @@ def main():
             except Exception as e:
                 detailed_candidates_data.append(stock)
 
-        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
+        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport (Engelsk)
         council_report_html = "<h3>LLM Council fejl</h3>"
         output_mp3 = "llm_council_podcast.mp3"
         podcast_compiled = False
@@ -791,21 +749,24 @@ def main():
                 sector_distribution_str=sector_distribution_str
             )
             
-            # 9. Generer automatisk lyd-podcast (på engelsk for optimal dynamik)
-            print("Igangsætter engelsk podcast-produktion...")
+            # 9. Generer automatisk lyd-podcast via det avancerede Podcastfy
+            print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
-            script = podcast_agent.generate_script(council_report_html)
-            if script:
+            generated_file = podcast_agent.generate_podcast_audio(council_report_html)
+            
+            if generated_file and os.path.exists(generated_file):
                 try:
-                    asyncio.run(podcast_agent.compile_audio(script, output_mp3))
+                    # Kopier eller omdøb den genererede lydfil til vores standard llm_council_podcast.mp3
+                    import shutil
+                    shutil.copyfile(generated_file, output_mp3)
                     podcast_compiled = True
-                except Exception as tts_err:
-                    print(f"Fejl under lydkompilering: {str(tts_err)}")
+                except Exception as file_err:
+                    print(f"Fejl ved kopiering af lydfil: {str(file_err)}")
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
 
-        # 10. Send HTML-rapport og MP3-podcast til din indbakke
-        subject = f"[LLM Council] Strategic Briefing - Focus on {focus_category}"
+        # 10. Send den engelske HTML-rapport og MP3-podcast til din indbakke
+        subject = f"[LLM Council] Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
         DeliveryAgent.send_email(
             subject=subject, 
             html_content=council_report_html, 
