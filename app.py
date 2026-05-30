@@ -60,7 +60,6 @@ TARGET_SUBSECTORS = [
 ]
 
 # DET STATISKE LYNHURTIGE KARTOTEK (Failsafe for at undgå IP-blokeringer fra Yahoo)
-# Detekterer lynhurtigt kategorier og delsektorer på 0 ms uden internet-kald!
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharma"),
     "NOVO-B": ("Aktier", "Pharma"),
@@ -452,7 +451,7 @@ class ScreenerComplianceAgent:
         if "cash" in sym or "money market" in sec_l:
             return "Kontanter/Private", "Cash Equivalents"
 
-        # Dynamisk fallback: Selskabets reelle industri fra yfinance bruges direkte som delsektor
+        # Dynamisk fallback
         dynamic_subsector = industry if (industry and industry != "Other") else sector
         return "Aktier", dynamic_subsector
 
@@ -668,7 +667,7 @@ class PodcastAgent:
                 f"Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
                 f"First-Principles (the logical mathematician using raw numbers), "
                 f"Expansionist (the highly bullish growth hunter wanting to deploy capital), "
-                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
+                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models) [3], "
                 f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
                 f"The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
                 f"giving {user_name} a highly clear, actionable next step for his Saxo account."
@@ -753,6 +752,13 @@ st.markdown("""
         letter-spacing: 2px;
         margin-bottom: 30px;
     }
+    .found-box {
+        background-color: #F8FAFC; 
+        padding: 15px; 
+        border-radius: 8px; 
+        border: 1px solid #C5A880; 
+        margin-bottom: 15px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -761,6 +767,16 @@ st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Servi
 
 st.write("Welcome, Investor. This portal configures your personal, automated investment advisory department. "
          "Once submitted, you will receive your **first investment dossier and audio podcast in your inbox within 60 seconds**.")
+
+# Initialize session state for active holdings if not present
+if "holdings" not in st.session_state:
+    st.session_state.holdings = [
+        {"Company Name": "Novo Nordisk", "Ticker": "NOVO-B.CO", "Shares": 10, "Category": "Aktier", "Sector": "Pharma"},
+        {"Company Name": "Saudi Arabia ETF", "Ticker": "MSAU.L", "Shares": 10, "Category": "Aktier", "Sector": "ETF - regional"},
+        {"Company Name": "Invesco Islamic Global", "Ticker": "IGDA.L", "Shares": 23, "Category": "Aktier", "Sector": "ETF - global"},
+        {"Company Name": "iShares USD Sukuk", "Ticker": "SKUK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk"},
+        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining royalty"}
+    ]
 
 # =====================================================================
 #  STEP 1: BRUGEROPLYSNINGER, NAVN & DYNAMISKE MÅLVÆGTE
@@ -773,13 +789,15 @@ with col_n2:
     user_email = st.text_input("Enter your Email Address to receive the briefings:", placeholder="your.name@gmail.com")
 
 st.subheader("Step 1.2: Your Investment Horizon")
+
+# Ændret til udelukkende antal år (fjerner antagende ord som "Conservative/Growth")
 investment_horizon = st.selectbox(
     "Select your Investment Horizon:", 
     [
-        "Short-term (1-3 years - Conservative)", 
-        "Medium-term (3-7 years - Balanced)", 
-        "Long-term (7-15 years - Growth)", 
-        "Ultra Long-term (15+ years - Multi-generational/Retirement)"
+        "1-3 years", 
+        "3-7 years", 
+        "7-15 years", 
+        "15+ years"
     ],
     index=2
 )
@@ -810,34 +828,93 @@ else:
     custom_targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 
 # =====================================================================
-#  STEP 2: ENKELT, FULDAUTOMATISERET HOLDINGS ENTRANCE (MED .ITERROWS)
+#  STEP 2: ENKELT, FULDAUTOMATISERET SØG-OG-TILFØJ ENGINE (FINTECH STYLE)
 # =====================================================================
-st.subheader("Step 2: Your Active Portfolio")
-st.write("Enter your active positions. Enter ONLY Company Name (e.g. 'Novo Nordisk') and Shares. "
-         "Our background engine will automatically find the ticker and detect Category and Sector live [3]!")
+st.subheader("Step 2: Add Assets to Your Active Portfolio")
+st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares [3]!")
 
-default_holdings = [
-    {"Company Name or Ticker": "Novo Nordisk", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Company Name or Ticker": "Saudi Arabia ETF", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Company Name or Ticker": "Invesco Islamic Global", "Shares": 23, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Company Name or Ticker": "iShares USD Sukuk", "Shares": 100, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Company Name or Ticker": "Wheaton Precious Metals", "Shares": 5, "Category Override (Optional)": None, "Sector Override (Optional)": None}
-]
+# Live søgefelt
+search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'Novo Nordisk', 'Microsoft', 'Gold'):", "")
 
-df_default = pd.DataFrame(default_holdings)
+if search_query:
+    resolved_ticker = search_ticker_by_name(search_query)
+    if resolved_ticker:
+        try:
+            t = yf.Ticker(resolved_ticker)
+            info = t.info
+            comp_name = info.get("longName", resolved_ticker)
+            sec = info.get("sector", "Other")
+            ind = info.get("industry", "Other")
+            
+            # Map til kategori og delsektor
+            temp_screener = ScreenerComplianceAgent([])
+            cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
+            
+            # Vis den live-fundne information direkte på skærmen!
+            st.markdown(f"""
+            <div class="found-box">
+                <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Found Asset:</span> {comp_name} ({resolved_ticker})<br>
+                <span style="color: #334155; font-weight: bold;">Asset Class:</span> {cat} | 
+                <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_shares, col_add = st.columns([1, 1])
+            with col_shares:
+                shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
+            with col_add:
+                st.write(" ") # Padding
+                st.write(" ")
+                if st.button("➕ Add to Portfolio"):
+                    # Tjek om den allerede findes i listen, opdater ellers tilføj
+                    exists = False
+                    for h in st.session_state.holdings:
+                        if h["Ticker"] == resolved_ticker:
+                            h["Shares"] += shares_to_add
+                            exists = True
+                            break
+                    if not exists:
+                        st.session_state.holdings.append({
+                            "Company Name": comp_name,
+                            "Ticker": resolved_ticker,
+                            "Shares": shares_to_add,
+                            "Category": cat,
+                            "Sector": sub_sec
+                        })
+                    st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
+                    time.sleep(1)
+                    st.rerun() # Genstart siden så tabellen opdateres med det samme!
+        except Exception as e:
+            st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
+    else:
+        st.warning(f"Could not find any assets matching '{search_query}'. Please try another name.")
 
-# Den interaktive tabel - kun to felter er reelt nødvendige for brugeren!
-edited_df = st.data_editor(
-    df_default,
-    num_rows="dynamic",
-    column_config={
-        "Company Name or Ticker": st.column_config.TextColumn("Company Name or Ticker", help="e.g. 'Novo Nordisk', 'Microsoft', or 'WPM'"),
-        "Shares": st.column_config.NumberColumn("Shares", min_value=1),
-        "Category Override (Optional)": st.column_config.SelectboxColumn("Category Override (Optional)", options=["Aktier", "Sukuk", "Råvarer", "Kontanter/Private"]),
-        "Sector Override (Optional)": st.column_config.SelectboxColumn("Sector Override (Optional)", options=TARGET_SUBSECTORS)
-    },
-    use_container_width=True
-)
+st.write("---")
+st.write("### Your Current Portfolio")
+if st.session_state.holdings:
+    holdings_df = pd.DataFrame(st.session_state.holdings)
+    
+    # Lad brugeren ændre Shares direkte eller slette rækker fra deres aktive portefølje!
+    edited_holdings = st.data_editor(
+        holdings_df,
+        num_rows="dynamic", # Gør det muligt at slette rækker ved brug af checkbox til venstre!
+        column_config={
+            "Company Name": st.column_config.TextColumn("Company Name", disabled=True),
+            "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
+            "Shares": st.column_config.NumberColumn("Shares", min_value=1),
+            "Category": st.column_config.TextColumn("Category", disabled=True),
+            "Sector": st.column_config.TextColumn("Sector", disabled=True)
+        },
+        use_container_width=True,
+        key="holdings_editor"
+    )
+    
+    # Hvis brugeren har ændret noget i tabellen, gemmer vi det i session state
+    if not edited_holdings.equals(holdings_df):
+        st.session_state.holdings = edited_holdings.to_dict(orient="records")
+        st.rerun()
+else:
+    st.info("Your portfolio is currently empty. Use the search field above to add assets.")
 
 # =====================================================================
 #  STEP 3: WATCHLIST (VALGFRI)
@@ -854,78 +931,40 @@ watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.str
 # =====================================================================
 #  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
 # =====================================================================
-async def process_instant_briefing(receiver_email, holdings_df, watchlist, target_allocations, user_name, horizon):
+async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon):
     """
     Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
-    Udlæser rækkerne via robust .iterrows() for at undgå navne-mangler-fejl på sky-serveren [3]!
+    Modtager den præ-klassificerede liste af holdings, hvilket garanterer 100% stabilitet.
     """
-    total_assets_count = len(holdings_df)
+    total_assets_count = len(holdings_list)
     
     portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
     sector_distribution = {}
     
-    # Midlertidig screener til at kortlægge live sektorer
-    screener = ScreenerComplianceAgent([], target_category="Aktier")
-    
-    # Looper over indtastede positioner med .iterrows() (100% robust mod mellemrum og parenteser!) [3]
-    for idx, row in holdings_df.iterrows():
-        raw_input = row.get("Company Name or Ticker")
-        shares = row.get("Shares")
+    # 1. Udregn porteføljevægte og delsektorer ud fra den færdig-klassificerede liste i session state!
+    for item in holdings_list:
+        category = item["Category"]
+        subsector = item["Sector"]
         
-        if pd.isna(raw_input) or str(raw_input).strip() == "":
-            continue
-            
-        shares = int(shares) if (shares and not pd.isna(shares)) else 1
-        
-        # 1. LIVE SEARCH-TO-TICKER: Konverter selskabsnavn til rigtig Yahoo-ticker! [3]
-        symbol = search_ticker_by_name(raw_input)
-        if not symbol:
-            print(f"Kunne ikke finde ticker for '{raw_input}'. Springer over.")
-            continue
-            
-        print(f"Konverteret '{raw_input}' -> Ticker: '{symbol}'")
-        
-        # Hent valgfri overstyringer
-        cat_override = row.get("Category Override (Optional)")
-        sec_override = row.get("Sector Override (Optional)")
-        
-        category = cat_override if (cat_override and not pd.isna(cat_override)) else None
-        subsector = sec_override if (sec_override and not pd.isna(sec_override)) else None
-        
-        # Hvis ikke manuelt overstyret, slår vi det op live på yfinance!
-        if not category or not subsector:
-            try:
-                t = yf.Ticker(symbol)
-                info = t.info
-                sec = info.get("sector", "Other")
-                ind = info.get("industry", "Other")
-                
-                cat_detect, sub_detect = screener.map_to_category_and_sector(symbol, sec, ind)
-                category = category if category else cat_detect
-                subsector = subsector if subsector else sub_detect
-            except Exception:
-                category = category if category else "Aktier"
-                subsector = subsector if subsector else "Other"
-                
-        # Læg vægtene sammen
         weight_chunk = (100.0 / total_assets_count)
         if category in portfolio_distribution:
             portfolio_distribution[category] += weight_chunk
         if subsector not in sector_distribution:
             sector_distribution[subsector] = 0.0
+            
         sector_distribution[subsector] += weight_chunk
 
     # 2. Find fokus-kategori baseret på de dynamiske målvægte!
     pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
     focus_category, deficit = pm.identify_underweighted_focus()
+    print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
     # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
     # 4. Kør screening
-    screener.target_category = focus_category
-    screener.tickers = combined_candidates
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
     approved_stocks = screener.run_screening(focus_category)
     target_candidates = approved_stocks[:10]
     
@@ -962,16 +1001,7 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
 
     # 6. Kør Gemini 3.5 Flash til nyhedsbrevet (inkl. personlige detaljer)
     current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
-    current_holdings = []
-    for idx, r in holdings_df.iterrows():
-        raw_name = r.get("Company Name or Ticker")
-        resolved_sym = search_ticker_by_name(raw_name)
-        current_holdings.append({
-            "ticker": resolved_sym if resolved_sym else raw_name,
-            "name": raw_name,
-            "asset_class": r.get("Category Override (Optional)") if r.get("Category Override (Optional)") else "Aktier"
-        })
-    current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
+    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
     sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
     
     council_agent = CouncilAgent(GEMINI_API_KEY)
@@ -998,7 +1028,7 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
         shutil.copyfile(generated_file, output_mp3)
         podcast_compiled = True
 
-    # 8. Send e-mailen (Vi overskriver EMAIL_RECEIVER med brugerens indtastede mail)
+    # 8. Send e-mailen
     os.environ["EMAIL_RECEIVER"] = receiver_email
     subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
     
@@ -1021,13 +1051,13 @@ st.subheader("Step 4: Activate Your Personal Council")
 if st.button("🚀 Start My LLM Council & Send First Report"):
     if not user_email or "@" not in user_email:
         st.error("Please enter a valid email address.")
-    elif edited_df.empty:
+    elif not st.session_state.holdings:
         st.error("Please configure at least one active holding.")
     elif not GEMINI_API_KEY:
         st.error("SaaS master API key is missing on the server.")
     else:
         with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
-            success, msg = asyncio.run(process_instant_briefing(user_email, edited_df, watchlist_list, custom_targets, user_name, investment_horizon))
+            success, msg = asyncio.run(process_instant_briefing(user_email, st.session_state.holdings, watchlist_list, custom_targets, user_name, investment_horizon))
             if success:
                 st.success(f"Boom! {msg}")
                 st.balloons()
