@@ -116,6 +116,25 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
+# GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt) - HER ER DET INTEGRERET I DATABASEN!
+GLOBAL_COMPLIANT_GROWTH_POOL = {
+    "Aktier": [
+        "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
+        "TRMB", "SAP", "IFX.DE", "MSFT", "ASML", "NVDA", "ADBE", "CRM", "SNPS", 
+        "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
+        "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO"
+    ],
+    "Sukuk": [
+        "SPSK", "SKUK"
+    ],
+    "Råvarer": [
+        "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
+    ],
+    "Kontanter/Private": [
+        "SPSK", "SKUK"
+    ]
+}
+
 # HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
 failsafe_db = STATIC_TICKER_MAP.copy()
 if os.path.exists("failsafe_db.json"):
@@ -868,14 +887,14 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW (MED DYNAMISK FEJL-RAPPORT TIL DIN MAIL)
+#  ORCHESTRATOR / SYSTEM FLOW (HER ANVENDES NU DET RETTEDE KARTOTEK)
 # =====================================================================
 def main():
     try:
         print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # 1. Hent investors aktuelle vægte samt de 21 delsektorer
+        # 1. Hent investors aktuelle vægte samt de 21 delsektorer (Opdateret med hybrid-database)
         current_portfolio_weights, sector_distribution = sheets_agent.get_current_weights_and_sectors()
         print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
         print(f"Beregnet delsektor-fordeling: {sector_distribution}")
@@ -888,7 +907,7 @@ def main():
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
         print(f"Watchlist: {watchlist_tickers}")
 
-        # 4. Find den mest undervægtede kasse (Tidsbaseret rotation!)
+        # 4. Find den mest undervægtede kasse i din 4x25%-struktur (Tidsbaseret rotation!)
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
         print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
@@ -898,7 +917,7 @@ def main():
         combined_candidates = list(set(watchlist_tickers + growth_pool))
         print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
 
-        # 6. Kør compliance screening
+        # 6. Kør compliance screening (Sharia & Gælds-barrierer)
         print("Screener kandidater mod Sharia- og gældskrav...")
         screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
         approved_stocks = screener.run_screening(focus_category)
@@ -955,6 +974,7 @@ def main():
             sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
             
             council_agent = CouncilAgent(GEMINI_API_KEY)
+            # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
             council_report_html = council_agent.run_proactive_analysis(
                 candidates_data=detailed_candidates_data,
                 category=focus_category,
@@ -966,7 +986,7 @@ def main():
                 horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast via det avancerede Podcastfy
+            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             try:
