@@ -65,7 +65,6 @@ DB_TO_UI_MAP = {
     "Kontanter/Private": "Cash/Private"
 }
 
-# UDVIDET GLOBALE INVESTERINGS-KATEGORIER (På engelsk for bredere udsyn)
 TARGET_SUBSECTORS = [
     "Pharmaceuticals & Biotech",
     "Medical Devices & MedTech",
@@ -94,7 +93,7 @@ TARGET_SUBSECTORS = [
     "Water Infrastructure & Desalination"
 ]
 
-# DET STATISKE LYNHURTIGE KARTOTEK (Opdateret med engelske sub-sektorer)
+# DET STATISKE LYNHURTIGE KARTOTEK (Failsafe for at undgå IP-blokeringer fra Yahoo)
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
     "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
@@ -487,7 +486,7 @@ class ScreenerComplianceAgent:
         if "cash" in sym or "money market" in sec_l:
             return "Kontanter/Private", "Cash & Liquidity Reserves"
 
-        # Dynamisk kobling til de nye 25 overordnede kategorier
+        # Dynamisk kobling til de nye overordnede kategorier
         if "pharmaceutical" in ind_l or "biotechnology" in ind_l:
             return "Aktier", "Pharmaceuticals & Biotech"
         if "medical" in ind_l or "healthcare" in sec_l:
@@ -642,14 +641,14 @@ class CouncilAgent:
         english_category = DISPLAY_CATEGORIES.get(category, category)
         
         prompt = f"""
-        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, {user_name} [3].
+        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, {user_name}.
         
         THE INVESTOR PROFILE & MODEL:
-        - Investor's Name: {user_name} [3]
-        - Investment Horizon: {horizon} (This is CRITICAL. Align all advice, timelines, risk-tolerances, and recommendations precisely with this specific time horizon!) [3]
-        - Overarching Strategic Model: Customize based on Wazir's targets [3].
-        - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%) [3].
-        - Current Portfolio Allocations (Target vs Actual): {current_portfolio_str} [3].
+        - Investor's Name: {user_name}
+        - Investment Horizon: {horizon} (This is CRITICAL. Align all advice, timelines, risk-tolerances, and recommendations precisely with this specific time horizon!)
+        - Overarching Strategic Model: Customize based on Wazir's targets.
+        - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%)
+        - Current Portfolio Allocations (Target vs Actual): {current_portfolio_str}
         
         THE INVESTOR'S STRATEGIC SUB-SECTORS (DYNAMICALLY DETECTED FROM THE HOLDINGS):
         {sector_distribution_str}
@@ -661,12 +660,12 @@ class CouncilAgent:
         {candidates_json}
         
         YOUR OBJECTIVE (DELIVER ENTIRE BRIEFING IN BEAUTIFUL ENGLISH HTML):
-        Generate a complete, institutional-grade, highly engaging HTML investment newsletter in English [3].
+        Generate a complete, institutional-grade, highly engaging HTML investment newsletter in English.
         
-        Brug udelukkende inline CSS-styling for maximum compatibility with Gmail [3].
+        Brug udelukkende inline CSS-styling for maximum compatibility with Gmail.
         Design guidelines:
         - Main container: `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 25px; background-color: #ffffff; color: #334155; line-height: 1.6;">`
-        - Colors: Dark Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`) [3].
+        - Colors: Dark Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`).
         - Cards: Each of the screened candidates should be enclosed in a distinct card: `<div style="border: 1px solid #E2E8F0; padding: 20px; margin-bottom: 25px; border-radius: 8px; background-color: #F8FAFC;">`
         - Debate box: Each adviser's turn must use the distinct left-bordered styling:
           - Contrarian: `border-left: 4px solid #EF4444; background: #FEF2F2; padding: 15px; margin-bottom: 15px;` (Red border)
@@ -686,7 +685,7 @@ class CouncilAgent:
         <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
         <h2>SECTION 1 — PORTFOLIO DIAGNOSTIC & INDIRECT EXPOSURES</h2>
-        Analyze {user_name}'s current holdings and how they map to their strategic sub-sectors [3]. Do existing assets already provide satisfactory indirect exposure to the focus theme [3]? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
+        Analyze {user_name}'s current holdings and how they map to their strategic sub-sectors. Do existing assets already provide satisfactory indirect exposure to the focus theme? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
         
         <h2>SECTION 2 — DEEP-DIVE CONSULTANT ANALYSIS (UP TO 10 SCREENED CANDIDATES)</h2>
         For each candidate, write an elegant card covering:
@@ -698,10 +697,10 @@ class CouncilAgent:
         6. <strong>Analyst Insight & Sources</strong>: Insert exactly 2 clickable links structured beautifully in HTML (e.g. `<a href="https://seekingalpha.com/symbol/TICKER" style="color: #C5A880; text-decoration: none; font-weight: bold;">Seeking Alpha</a>`).
         
         <h2>SECTION 3 — THE ASYNCHRONOUS COUNCIL DEBAT (TOP-3)</h2>
-        Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs [3]. Show conflict, arguments on valuation, capex, and macro timing.
+        Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs. Show conflict, arguments on valuation, capex, and macro timing.
         
         <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (RECOMMENDATION)</h2>
-        In Section 4, the Chairman must NOT command the investor to buy or take action. Instead, the Chairman must strongly advise and urge the investor to critically evaluate and consider the council's comprehensive proposal. The tone should be highly advisory, objective, and respectful, emphasizing that the final capital allocation decision rests solely on the investor's own assessment [3]. Enclose this callout in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for {user_name}'s Saxo Investor account over the next 7 days [3].
+        In Section 4, the Chairman must NOT command the investor to buy or take action. Instead, the Chairman must strongly advise and urge the investor to critically evaluate and consider the council's comprehensive proposal. The tone should be highly advisory, objective, and respectful, emphasizing that the final capital allocation decision rests solely on the investor's own assessment. Enclose this callout in the gold callout box. Conclude with a highly precise, step-by-step action plan for {user_name}'s Saxo Investor account over the next 7 days.
         
         Return ONLY the raw HTML code. Do NOT enclose in markdown tags like "```html".
         """
@@ -745,13 +744,13 @@ class PodcastAgent:
             "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk"],
             "user_instructions": (
                 f"Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
-                f"The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, {user_name} [3]. "
+                f"The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, {user_name}. "
                 f"Then, they introduce and interview our 5 resident advisers: "
                 f"Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
                 f"First-Principles (the logical mathematician using raw numbers), "
                 f"Expansionist (the highly bullish growth hunter wanting to deploy capital), "
-                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models) [3], "
-                f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
+                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
+                f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging). "
                 f"The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
                 f"giving {user_name} a highly clear, actionable next step for his Saxo account."
             )
@@ -848,36 +847,39 @@ st.markdown("""
 st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
 
-# Pæn, engelsk forklaring af værditilbuddet (Value Proposition) [3]
+# Pæn, engelsk forklaring af værditilbuddet (Value Proposition)
 st.markdown("""
     <div style="background-color: #F8FAFC; padding: 25px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 30px;">
         <h3 style="color: #0F172A; font-family: 'Georgia', serif; margin-top: 0;">🛡️ Ethical Shariah-Compliant Filtering</h3>
         <p style="color: #334155; margin-bottom: 20px;">
             LLM Council operates under strict Islamic ethical constraints. 
             Our automated live engine immediately purges companies associated with:
-            Traditional interest-bearing debt (conventional banking and insurance) [3], alcohol, pork, weapons, defense, 
+            Traditional interest-bearing debt (conventional banking and insurance), alcohol, pork, weapons, defense, 
             gambling, and adult entertainment. Additionally, any asset with a live debt-to-equity or 
-            debt-to-market-cap ratio exceeding 30% is immediately disqualified [3].
+            debt-to-market-cap ratio exceeding 30% is immediately disqualified.
         </p>
+        <h3 style="color: #0F172A; font-family: 'Georgia', serif; margin-top: 25px;">📊 The 4 Pillars of a Shariah-Compliant Portfolio</h3>
+        <p style="color: #334155; margin-bottom: 10px;">For new investors, building a robust, diversified, and halaal portfolio requires spreading your capital across four core pillars, each acting as a unique engine of growth and protection:</p>
+        <ul style="color: #334155; margin-bottom: 20px;">
+            <li><strong>Equities (Aktier):</strong> Fractional ownership in global businesses. We only select companies that pass strict qualitative filters (no unlawful lines of business) and conservative quantitative audits (debt-to-equity and interest-bearing liquidity must be below 30%).</li>
+            <li><strong>Sukuk (Islamic Bonds):</strong> Asset-backed financial certificates. Since conventional interest-bearing bonds are strictly prohibited (Riba), Sukuk certificates generate yields for you from tangible underlying assets (such as real estate leasing or profit-sharing partnerships). They act as your portfolio's stable income stream.</li>
+            <li><strong>Commodities (Råvarer):</strong> Tangible, physical hard assets like gold, silver, or key industrial materials. Commodities act as a store of real value and your primary defense mechanism against currency devaluation and global inflation.</li>
+            <li><strong>Cash / Private Sector (Kontanter/Private):</strong> Highly liquid cash reserves, Sharia money-market proxies, or private equity investments used for tactical rebalancing, emergency funds, or long-term private business backing.</li>
+        </ul>
         <h3 style="color: #0F172A; font-family: 'Georgia', serif;">🗳️ Why the LLM Council Method Works</h3>
         <p style="color: #334155; margin-bottom: 0;">
             Rather than relying on a single stagnant AI opinion, we submit your portfolio to a dynamic, 
-            adversarial debate between <strong>five distinct virtual financial specialists</strong> [3] (Skeptics, Growth Hunters, 
-            Logicians, and Strategists) [3]. This pressure-tests your holdings from multiple conflicting perspectives, 
-            spotting overlapping risks and hidden capex cycles [3]. The Chairman then synthesizes their argument 
-            to deliver an objective, highly tailored capital allocation blueprint directly to your inbox [3].
+            adversarial debate between <strong>five distinct virtual financial specialists</strong> (Skeptics, Logicians, Growth Hunters, 
+            Strategists, and Practicians). This pressure-tests your holdings from multiple conflicting perspectives, 
+            spotting overlapping risks and hidden capex cycles. The Chairman then synthesizes their argument 
+            to deliver an objective, highly advisory and tailored capital allocation proposal directly to your inbox.
         </p>
     </div>
 """, unsafe_allow_html=True)
 
-# Initialize session state for active holdings if not present
+# Initialize session state for active holdings if not present (NU HELT TOM VED OPSTART)
 if "holdings" not in st.session_state:
-    st.session_state.holdings = [
-        {"Company Name": "Apple Inc.", "Ticker": "AAPL", "Shares": 10, "Category": "Aktier", "Sector": "Semiconductors & Hardware"},
-        {"Company Name": "Microsoft", "Ticker": "MSFT", "Shares": 5, "Category": "Aktier", "Sector": "Enterprise Software & SaaS"},
-        {"Company Name": "SP Funds Sukuk ETF", "Ticker": "SPSK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk & Fixed Income"},
-        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining & Royalty Streams"}
-    ]
+    st.session_state.holdings = []
 if "targets" not in st.session_state:
     st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 if "horizon" not in st.session_state:
@@ -915,7 +917,7 @@ def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets
         "targets": targets,
         "horizon": horizon,
         "name": name,
-        "frequency": frequency # Gemmer din ugentlige/daglige frekvens [3]
+        "frequency": frequency # Gemmer din ugentlige/daglige frekvens
     }
     try:
         response = requests.post(DATABASE_URL, json=payload, timeout=15)
@@ -1266,6 +1268,7 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         
     print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
+    # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
@@ -1375,3 +1378,21 @@ if st.button("🚀 Start My LLM Council & Send First Report"):
                 st.balloons()
             else:
                 st.error(f"Failed to generate briefing: {msg}")
+
+# =====================================================================
+#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN
+# =====================================================================
+st.markdown("""
+    <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px;">
+        <h4 style="color: #991B1B; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Legal Disclaimer & Personal Conviction</h4>
+        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+            The LLM Council is an automated, AI-driven informational and educational inspiration tool [3]. It is <strong>not</strong> a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates. 
+        </p>
+        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+            Financial markets carry inherent risks, and Shariah-compliance interpretations can vary across different scholars and madhabs. You must <strong>always</strong> base your final investment decisions on your own research, personal convictions, and common sense. 
+        </p>
+        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 0; line-height: 1.5;">
+            To manually audit and double-check the Shariah-compliance, financial health, or business profile of any individual stock or fund, we highly recommend utilizing the official <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a> [1.1.5, 3].
+        </p>
+    </div>
+""", unsafe_allow_html=True)
