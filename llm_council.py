@@ -81,7 +81,7 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
         "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
     ],
     "Kontanter/Private": [
-        "SPSK", "SKUK"  # Sukuk-fonde fungerer som godkendte, likvide proxies for kontanter
+        "SPSK", "SKUK"
     ]
 }
 
@@ -194,6 +194,7 @@ class GoogleSheetsAgent:
             df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
             df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
+            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK)
             total_mv = df['Cleaned_MV'].sum()
             total_weight = df['Cleaned_Weight'].sum()
 
@@ -323,7 +324,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (DYNAMISK PROXY HÅNDTERING)
+#  SCREENER & COMPLIANCE AGENT (MED AUTOMATISK ZOYA-CRAWLER)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -334,17 +335,40 @@ class ScreenerComplianceAgent:
 
     def __init__(self, tickers: list, target_category: str = None):
         self.tickers = tickers
-        self.target_category = target_category  # Gemmer nattens fokuskategori
+        self.target_category = target_category
+
+    def check_zoya_live_compliance(self, symbol: str) -> bool:
+        """
+        Crawler automatisk Zoyas offentlige selskabssider for Sharia-compliance.
+        Slipper for manuel vedligeholdelse af CSV-lister [3].
+        """
+        # Rens børskoder og klasser (f.eks. NOVO-B.CO -> NOVO, ORK.OL -> ORK) [3]
+        clean_symbol = symbol.split('.')[0].upper()
+        clean_symbol = clean_symbol.split('-')[0]
+        
+        url = f"https://zoya.finance/stocks/{clean_symbol}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        }
+        try:
+            response = requests.get(url, headers=headers, timeout=8)
+            if response.status_code == 200:
+                html_lower = response.text.lower()
+                if "is shariah-compliant" in html_lower or "is considered halal" in html_lower:
+                    return True
+                elif "not shariah-compliant" in html_lower or "non-compliant" in html_lower:
+                    return False
+            return None
+        except Exception:
+            return None
 
     def map_to_category_and_sector(self, symbol: str, sector: str, industry: str) -> tuple:
         sym = symbol.upper()
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
-        # Sukuk & Kontant-Proxies
+        # Sukuk
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
-            # Sikkerhedsnet: Hvis nattens fokus er Kontanter/Private, tillader vi,
-            # at ultra-stabile Sukuks (SPSK/SKUK) fungerer som godkendte proxies.
             if self.target_category == "Kontanter/Private":
                 return "Kontanter/Private", "Sukuk"
             return "Sukuk", "Sukuk"
@@ -393,6 +417,17 @@ class ScreenerComplianceAgent:
 
     def screen_ticker(self, symbol: str) -> dict:
         try:
+            # 1. Automatisk Zoya Live-tjek (Prioriteret filter-motor)
+            zoya_compliant = self.check_zoya_live_compliance(symbol)
+            
+            if zoya_compliant is False:
+                return {"symbol": symbol, "passed": False, "reason": "Disqualified by Zoya's live public Shariah assessment."}
+            elif zoya_compliant is True:
+                print(f"Zoya Live-tjek bekræfter: {symbol} er Shariah-compliant.")
+            else:
+                # Hvis selskabet ikke findes på Zoya public, falder vi tilbage på yfinance-reglerne
+                print(f"Zoya Live-tjek utilgængeligt for {symbol}. Falder tilbage til matematisk balance-screening.")
+
             ticker_obj = yf.Ticker(symbol)
             info = ticker_obj.info
             
@@ -686,7 +721,6 @@ def main():
         print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
 
         # 6. Kør compliance screening (Sharia & Gælds-barrierer)
-        # Vi overfører focus_category til Screener's constructor, så den kan håndtere kontant-proxies dynamisk!
         print("Screener kandidater mod Sharia- og gældskrav...")
         screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
         approved_stocks = screener.run_screening(focus_category)
