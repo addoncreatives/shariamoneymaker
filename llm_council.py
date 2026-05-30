@@ -50,7 +50,7 @@ TARGET_PORTFOLIO = {
     "Kontanter/Private": 25.0
 }
 
-# Oversættelse til den engelske nyhedsbrevs-rapport
+# Translation dictionary for the English report output
 DISPLAY_CATEGORIES = {
     "Aktier": "Equities",
     "Sukuk": "Sukuk (Islamic Bonds)",
@@ -116,6 +116,17 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
+# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
+failsafe_db = STATIC_TICKER_MAP.copy()
+if os.path.exists("failsafe_db.json"):
+    try:
+        with open("failsafe_db.json", "r") as f:
+            loaded_db = json.load(f)
+            failsafe_db.update(loaded_db)
+            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
+    except Exception as e:
+        print(f"Warning: Could not load failsafe_db.json: {str(e)}")
+
 # GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
     "Aktier": [
@@ -134,17 +145,6 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
         "SPSK", "SKUK"
     ]
 }
-
-# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
-failsafe_db = STATIC_TICKER_MAP.copy()
-if os.path.exists("failsafe_db.json"):
-    try:
-        with open("failsafe_db.json", "r") as f:
-            loaded_db = json.load(f)
-            failsafe_db.update(loaded_db)
-            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
-    except Exception as e:
-        print(f"Advarsel under indlæsning af failsafe_db.json: {str(e)}")
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -178,93 +178,253 @@ def normalize_string(s: str) -> str:
 
 
 # =====================================================================
-#  FEJLSIKRET KATEGORI OG SEKTOR OPFØLGNING (DYNAMISK + STATISK)
+#  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
 # =====================================================================
-def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -> tuple:
-    sym = str(ticker).upper().strip()
-    lookup_sym = sym.split('.')[0]
+def search_ticker_by_name(query: str) -> str:
+    if not query or pd.isna(query):
+        return None
     
-    for k, v in failsafe_db.items():
-        if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
-            if v[0] == "Sukuk" and target_category == "Kontanter/Private":
-                return "Kontanter/Private", "Sukuk & Fixed Income"
-            return v[0], v[1]
-            
+    query_clean = str(query).strip()
+    
+    if re.match(r'^[A-Z0-9\.\-]+$', query_clean) and len(query_clean) < 10 and "." in query_clean:
+        return query_clean
+
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_clean}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0'
+    }
     try:
-        t = yf.Ticker(sym)
-        info = t.info
-        sec = info.get("sector", "Other")
-        ind = info.get("industry", "Other")
-        
-        temp_screener = ScreenerComplianceAgent([], target_category=target_category)
-        cat, sub_sec = temp_screener.map_to_category_and_sector(sym, sec, ind)
-        return cat, sub_sec
-    except Exception:
-        return "Aktier", "Other"
+        response = requests.get(url, headers=headers, timeout=6)
+        if response.status_code == 200:
+            data = response.json()
+            quotes = data.get("quotes", [])
+            if quotes:
+                return quotes[0].get("symbol")
+    except Exception as e:
+        print(f"Search failed for '{query_clean}': {str(e)}")
+    return None
 
 
 # =====================================================================
-#  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
+#  GOOGLE SHEETS / EXCEL AGENT
 # =====================================================================
-def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
-    wb = openpyxl.Workbook()
-    
-    # 1. FANEN: Beholdninger
-    ws1 = wb.active
-    ws1.title = "Beholdninger"
-    
-    headers1 = [
-        "Position", "Ticker", "Status", "Antal", "Kurs (DKK)", 
-        "Markedsværdi (DKK)", "Aktivklasse", "Drivkraft", "Sektor", 
-        "Region", "Porteføljevægt", "Rolle", "Kommentar / tese"
-    ]
-    ws1.append(headers1)
-    
-    for idx, item in enumerate(holdings_list, start=2):
-        name = item.get("Company Name", "Other")
-        symbol = item.get("Ticker", "Other")
-        shares = int(item.get("Shares", 1))
-        cat = item.get("Category", "Aktier")
-        sec = item.get("Sector", "Other")
-        
-        # Hvis det er et manuelt aktiv
-        if "PVT_" in symbol or "CASH_" in symbol:
-            val = float(item.get("manual_value", 1000))
-            ws1.cell(row=idx, column=1, value=name)
-            ws1.cell(row=idx, column=2, value="")
-            ws1.cell(row=idx, column=3, value="Ejer")
-            ws1.cell(row=idx, column=4, value=1)
-            ws1.cell(row=idx, column=5, value=val)
-            ws1.cell(row=idx, column=6, value=val)
-        else:
-            ws1.cell(row=idx, column=1, value=name)
-            ws1.cell(row=idx, column=2, value=symbol)
-            ws1.cell(row=idx, column=3, value="Ejer")
-            ws1.cell(row=idx, column=4, value=shares)
-            ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
-            ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')
+class GoogleSheetsAgent:
+    def __init__(self, sheet_id: str):
+        self.sheet_id = sheet_id
+
+    def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
+        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=xlsx"
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
+            return df
+        except Exception as e:
+            raise RuntimeError(f"Kunne ikke indlæse fanen '{tab_name}': {str(e)}")
+
+    def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
+        for col in df.columns:
+            if key_header_word.lower() in str(col).lower():
+                return df
+                
+        for idx, row in df.head(10).iterrows():
+            row_values = [str(val).lower() for val in row.values]
+            if any(key_header_word.lower() in val for val in row_values):
+                new_columns = df.iloc[idx].values
+                df.columns = new_columns
+                df = df.iloc[idx+1:].reset_index(drop=True)
+                return df
+        return df
+
+    def _find_column_by_keyword(self, df: pd.DataFrame, keyword: str) -> str:
+        for col in df.columns:
+            if keyword.lower() in str(col).lower():
+                return col
+        return None
+
+    def get_current_weights_and_sectors(self) -> tuple:
+        """
+        Læser fanen 'Beholdninger', identificerer vægtene og fordeler dem 
+        både på hovedkasserne og på de specifikke delsektorer helt automatisk.
+        """
+        try:
+            raw_df = self._read_tab_as_df("Beholdninger")
+            df = self._clean_and_align_df(raw_df, "ticker")
             
-        ws1.cell(row=idx, column=7, value=cat)
-        ws1.cell(row=idx, column=8, value="")
-        ws1.cell(row=idx, column=9, value=sec)
-        ws1.cell(row=idx, column=10, value="Global")
-        ws1.cell(row=idx, column=11, value=f'=F{idx}/SUM(F$2:F$100)')
-        ws1.cell(row=idx, column=12, value="")
-        ws1.cell(row=idx, column=13, value="")
+            ticker_col = self._find_column_by_keyword(df, "ticker")
+            drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
+            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
+            sektor_col = self._find_column_by_keyword(df, "sektor")
+            weight_col = self._find_column_by_keyword(df, "vægt")
+            mv_col = self._find_column_by_keyword(df, "markedsværdi")
 
-    # 2. FANEN: Opsummering
-    ws2 = wb.create_sheet(title="Opsummering")
-    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
-    ws2.append(headers2)
-    
-    # Skriv watchlist i Kolonne N (14)
-    for idx, ticker in enumerate(watchlist_list, start=2):
-        ws2.cell(row=idx, column=14, value=ticker)
+            if not weight_col:
+                raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i Google Sheet.")
+
+            def clean_number(val):
+                if pd.isna(val) or val == "":
+                    return 0.0
+                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').replace('\xa0', '').strip()
+                if ',' in val_str and '.' in val_str:
+                    if val_str.find('.') < val_str.find(','):
+                        val_str = val_str.replace('.', '').replace(',', '.')
+                    else:
+                        val_str = val_str.replace(',', '').replace('.', '.')
+                elif ',' in val_str:
+                    val_str = val_str.replace(',', '.')
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
+
+            df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
+            df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
+
+            total_mv = df['Cleaned_MV'].sum()
+            total_weight = df['Cleaned_Weight'].sum()
+
+            if total_weight < 1.0 and total_mv > 0.0:
+                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
+            elif total_mv > 0.0:
+                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
+
+            portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
+            sector_distribution = {}
+
+            temp_screener = ScreenerComplianceAgent([])
+
+            for _, row in df.iterrows():
+                row_weight = row['Cleaned_Weight']
+                if row_weight <= 0.0:
+                    continue
+
+                symbol = str(row.get(ticker_col, "")).strip().upper()
+                drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
+                aktivklasse_val = normalize_string(row.get(aktivklasse_col, "")) if aktivklasse_col else ""
+                sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
+
+                combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
+                
+                category = None
+                subsector = None
+
+                if "sukuk" in combined_text:
+                    category = "Sukuk"
+                    subsector = "Sukuk & Fixed Income"
+                elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
+                    category = "Råvarer"
+                    subsector = "Mining & Royalty Streams"
+                elif any(word in combined_text for word in ["kontant", "cash", "private"]):
+                    category = "Kontanter/Private"
+                    subsector = "Cash & Liquidity Reserves"
+                elif "aktie" in combined_text:
+                    category = "Aktier"
+
+                if not category or not subsector:
+                    try:
+                        t = yf.Ticker(symbol)
+                        info = t.info
+                        sec = info.get("sector", "Other")
+                        ind = info.get("industry", "Other")
+                        
+                        cat_detect, sub_detect = temp_screener.map_to_category_and_sector(symbol, sec, ind)
+                        category = category if category else cat_detect
+                        subsector = subsector if subsector else sub_detect
+                    except Exception:
+                        category = category if category else "Aktier"
+                        subsector = subsector if subsector else "Other"
+
+                if category in portfolio_distribution:
+                    portfolio_distribution[category] += row_weight
+                
+                if subsector not in sector_distribution:
+                    sector_distribution[subsector] = 0.0
+                sector_distribution[subsector] += row_weight
+
+            return portfolio_distribution, sector_distribution
+        except Exception as e:
+            print(f"Fejl under indlæsning: {str(e)}")
+            return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}, {}
+
+    def get_current_holdings_details(self) -> list:
+        try:
+            raw_df = self._read_tab_as_df("Beholdninger")
+            df = self._clean_and_align_df(raw_df, "ticker")
+            
+            ticker_col = self._find_column_by_keyword(df, "ticker")
+            position_col = self._find_column_by_keyword(df, "position") or self._find_column_by_keyword(df, "navn")
+            mv_col = self._find_column_by_keyword(df, "markedsværdi")
+            sektor_col = self._find_column_by_keyword(df, "sektor")
+            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
+            
+            holdings = []
+            for _, row in df.iterrows():
+                ticker = str(row.get(ticker_col, "")).strip().upper()
+                if ticker and not pd.isna(row.get(ticker_col)) and ticker not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                    holdings.append({
+                        "ticker": ticker,
+                        "name": str(row.get(position_col, ticker)).strip(),
+                        "market_value": str(row.get(mv_col, "0.00 DKK")).strip(),
+                        "sector": str(row.get(sektor_col, "N/A")).strip(),
+                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip()
+                    })
+            return holdings
+        except Exception as e:
+            print(f"Fejl: {str(e)}")
+            return []
+
+    def get_watchlist_tickers(self) -> list:
+        try:
+            raw_df = self._read_tab_as_df("Opsummering")
+            df = self._clean_and_align_df(raw_df, "huller")
+            watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
+            
+            tickers = []
+            if watchlist_col:
+                raw_series = df[watchlist_col]
+            else:
+                if len(df.columns) >= 14:
+                    raw_series = df.iloc[:, 13]
+                else:
+                    return []
+
+            for val in raw_series:
+                if pd.isna(val):
+                    continue
+                val_str = str(val).strip().upper()
+                if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
+                    if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                        tickers.append(val_str)
+            return list(set(tickers))
+        except Exception as e:
+            return []
+
+
+# =====================================================================
+#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION)
+# =====================================================================
+class PortfolioManagerAgent:
+    def __init__(self, current: dict, target: dict):
+        self.current = current
+        self.target = target
+
+    def identify_underweighted_focus(self) -> tuple:
+        underweight_candidates = []
+        for category, target_val in self.target.items():
+            curr_val = self.current.get(category, 0.0)
+            deficit = target_val - curr_val
+            if deficit > 0.0:
+                underweight_candidates.append((category, deficit))
         
-    excel_data = io.BytesIO()
-    wb.save(excel_data)
-    excel_data.seek(0)
-    return excel_data.getvalue()
+        if not underweight_candidates:
+            return list(self.target.keys())[0], 0.0
+
+        underweight_candidates.sort(key=lambda x: x[0])
+        day_of_year = datetime.datetime.now().timetuple().tm_yday
+        index = day_of_year % len(underweight_candidates)
+        
+        focus_category, deficit = underweight_candidates[index]
+        return focus_category, deficit
 
 
 # =====================================================================
@@ -329,7 +489,7 @@ class ScreenerComplianceAgent:
         if "cash" in sym or "money market" in sec_l:
             return "Kontanter/Private", "Cash & Liquidity Reserves"
 
-        # Dynamisk kobling til de nye overordnede kategorier
+        # Dynamisk kobling til de overordnede kategorier
         if "pharmaceutical" in ind_l or "biotechnology" in ind_l:
             return "Aktier", "Pharmaceuticals & Biotech"
         if "medical" in ind_l or "healthcare" in sec_l:
@@ -613,7 +773,7 @@ class PodcastAgent:
 
 
 # =====================================================================
-#  DELIVERY AGENT (HTML & VEDHÆFTNINGER SMTP)
+#  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
@@ -663,7 +823,7 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW (HER ANVENDES NU DET RETTEDE KARTOTEK)
+#  ORCHESTRATOR / SYSTEM FLOW (HER RETTES AUTOMATISK VED HÆFTNINGS-MANGLEN FRA GITHUB)
 # =====================================================================
 def main():
     try:
@@ -749,6 +909,7 @@ def main():
             sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
             
             council_agent = CouncilAgent(GEMINI_API_KEY)
+            # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
             council_report_html = council_agent.run_proactive_analysis(
                 candidates_data=detailed_candidates_data,
                 category=focus_category,
@@ -785,7 +946,7 @@ def main():
         attachments_list.append({"data": excel_raw_bytes, "name": "Wazir_Live_Portfolio_Template.xlsx"})
 
         # 10. Send HTML-rapport og MP3-podcast til din indbakke
-        subject = f"[LLM Council] Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+        subject = f"[LLM Council] Your Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
         DeliveryAgent.send_email(
             subject=subject, 
             html_content=council_report_html, 
