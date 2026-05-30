@@ -14,24 +14,24 @@ from email.mime.base import MIMEBase
 from email import encoders
 
 # ---------------------------------------------------------------------
-#  SIKKERHEDSNET: Automatisk installation af openpyxl, hvis det mangler
+#  SAFETY NET: Automatic installation of openpyxl if missing
 # ---------------------------------------------------------------------
 try:
     import openpyxl
 except ImportError:
     import subprocess
-    print("Sikkerhedsnet: openpyxl mangler. Installerer automatisk...")
+    print("Safety net: openpyxl is missing. Installing automatically...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
     import openpyxl
 
 # ---------------------------------------------------------------------
-#  SIKKERHEDSNET: Automatisk installation af edge-tts, hvis det mangler
+#  SAFETY NET: Automatic installation of edge-tts if missing
 # ---------------------------------------------------------------------
 try:
     import edge_tts
 except ImportError:
     import subprocess
-    print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
+    print("Safety net: edge-tts is missing. Installing automatically...")
     subprocess.call([sys.executable, "-m", "pip", "install", "edge-tts"])
     import edge_tts
 
@@ -39,7 +39,10 @@ import yfinance as yf
 import requests
 import pandas as pd
 
-# Standard målvægte (hvis ingen sendes fra appen)
+# =====================================================================
+#  CONFIGURATION & STANDARD TARGET WEIGHTS
+# =====================================================================
+
 TARGET_PORTFOLIO = {
     "Aktier": 25.0,
     "Sukuk": 25.0,
@@ -53,6 +56,64 @@ DISPLAY_CATEGORIES = {
     "Sukuk": "Sukuk (Islamic Bonds)",
     "Råvarer": "Commodities",
     "Kontanter/Private": "Cash / Private Sector"
+}
+
+TARGET_SUBSECTORS = [
+    "Pharmaceuticals & Biotech",
+    "Medical Devices & MedTech",
+    "Clean Energy & Wind",
+    "Smart Grid & Electrification",
+    "Global Infrastructure",
+    "Construction & Building Materials",
+    "Chemicals & Advanced Materials",
+    "Industrial Machinery & Automation",
+    "Semiconductors & Hardware",
+    "Mining & Royalty Streams",
+    "Traditional Energy & Utilities",
+    "Global Equity ETFs",
+    "Regional & Thematic ETFs",
+    "Sukuk & Fixed Income",
+    "Cash & Liquidity Reserves",
+    "Private Equity & Venture Capital",
+    "Agriculture & Food Security",
+    "Consumer Defensive & Staples",
+    "Enterprise Software & SaaS",
+    "Industrial Metals & Copper",
+    "Logistics & Global Shipping",
+    "Artificial Intelligence & Cloud Computing",
+    "Cybersecurity & Digital Defense",
+    "E-Commerce & Digital Retail",
+    "Water Infrastructure & Desalination"
+]
+
+# DET STATISKE LYNHURTIGE KARTOTEK (Failsafe for at undgå IP-blokeringer fra Yahoo)
+STATIC_TICKER_MAP = {
+    "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
+    "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
+    "MSFT": ("Aktier", "Enterprise Software & SaaS"),
+    "AAPL": ("Aktier", "Semiconductors & Hardware"),
+    "SAP": ("Aktier", "Enterprise Software & SaaS"),
+    "IFX.DE": ("Aktier", "Semiconductors & Hardware"),
+    "ASML": ("Aktier", "Semiconductors & Hardware"),
+    "NVDA": ("Aktier", "Semiconductors & Hardware"),
+    "VWS.CO": ("Aktier", "Clean Energy & Wind"),
+    "NKT.CO": ("Aktier", "Smart Grid & Electrification"),
+    "FLS.CO": ("Aktier", "Industrial Machinery & Automation"),
+    "ROCK-B.CO": ("Aktier", "Construction & Building Materials"),
+    "ORK.OL": ("Aktier", "Consumer Defensive & Staples"),
+    "WPM": ("Råvarer", "Mining & Royalty Streams"),
+    "NEM": ("Råvarer", "Industrial Metals & Copper"),
+    "AEM": ("Råvarer", "Industrial Metals & Copper"),
+    "RGLD": ("Råvarer", "Mining & Royalty Streams"),
+    "SPSK": ("Sukuk", "Sukuk & Fixed Income"),
+    "SKUK": ("Sukuk", "Sukuk & Fixed Income"),
+    "MSAU.L": ("Aktier", "Regional & Thematic ETFs"),
+    "IGDA.L": ("Aktier", "Global Equity ETFs"),
+    "HLAL": ("Aktier", "Regional & Thematic ETFs"),
+    "UMMA": ("Aktier", "Global Equity ETFs"),
+    "ISWD.L": ("Aktier", "Global Equity ETFs"),
+    "ISUS.L": ("Aktier", "Regional & Thematic ETFs"),
+    "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
 # GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
@@ -74,7 +135,19 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
     ]
 }
 
+# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
+failsafe_db = STATIC_TICKER_MAP.copy()
+if os.path.exists("failsafe_db.json"):
+    try:
+        with open("failsafe_db.json", "r") as f:
+            loaded_db = json.load(f)
+            failsafe_db.update(loaded_db)
+            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
+    except Exception as e:
+        print(f"Advarsel under indlæsning af failsafe_db.json: {str(e)}")
+
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
+DATABASE_URL = os.getenv("DATABASE_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
@@ -88,15 +161,11 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 if not EMAIL_RECEIVER or EMAIL_RECEIVER.strip() == "":
     EMAIL_RECEIVER = "addoncreatives@gmail.com"
 
-# Hent og rens adgangskoden (Sikkerhedsnet mod mellemrum)
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 if EMAIL_PASSWORD:
     EMAIL_PASSWORD = EMAIL_PASSWORD.replace(" ", "").strip()
 
 
-# =====================================================================
-#  STÆRK TEKST-NORMALISERING (FJERNER STAVE- OG APOSTROF-FEJL)
-# =====================================================================
 def normalize_string(s: str) -> str:
     if not s or pd.isna(s):
         return ""
@@ -109,233 +178,97 @@ def normalize_string(s: str) -> str:
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT (MED FULL-AUTO DETEKTERING)
+#  FEJLSIKRET KATEGORI OG SEKTOR OPFØLGNING (DYNAMISK + STATISK)
 # =====================================================================
-class GoogleSheetsAgent:
-    def __init__(self, sheet_id: str):
-        self.sheet_id = sheet_id
-
-    def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
-        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=xlsx"
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
-            return df
-        except Exception as e:
-            raise RuntimeError(f"Kunne ikke indlæse fanen '{tab_name}': {str(e)}")
-
-    def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
-        for col in df.columns:
-            if key_header_word.lower() in str(col).lower():
-                return df
-                
-        for idx, row in df.head(10).iterrows():
-            row_values = [str(val).lower() for val in row.values]
-            if any(key_header_word.lower() in val for val in row_values):
-                new_columns = df.iloc[idx].values
-                df.columns = new_columns
-                df = df.iloc[idx+1:].reset_index(drop=True)
-                return df
-        return df
-
-    def _find_column_by_keyword(self, df: pd.DataFrame, keyword: str) -> str:
-        for col in df.columns:
-            if keyword.lower() in str(col).lower():
-                return col
-        return None
-
-    def get_current_weights_and_sectors(self) -> tuple:
-        """
-        Læser fanen 'Beholdninger', identificerer vægtene og fordeler dem 
-        både på hovedkasserne og på de specifikke delsektorer helt automatisk.
-        """
-        try:
-            raw_df = self._read_tab_as_df("Beholdninger")
-            df = self._clean_and_align_df(raw_df, "ticker")
+def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -> tuple:
+    sym = str(ticker).upper().strip()
+    lookup_sym = sym.split('.')[0]
+    
+    for k, v in failsafe_db.items():
+        if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
+            if v[0] == "Sukuk" and target_category == "Kontanter/Private":
+                return "Kontanter/Private", "Sukuk & Fixed Income"
+            return v[0], v[1]
             
-            ticker_col = self._find_column_by_keyword(df, "ticker")
-            drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
-            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
-            sektor_col = self._find_column_by_keyword(df, "sektor")
-            weight_col = self._find_column_by_keyword(df, "vægt")
-            mv_col = self._find_column_by_keyword(df, "markedsværdi")
-
-            if not weight_col:
-                raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i Google Sheet.")
-
-            def clean_number(val):
-                if pd.isna(val) or val == "":
-                    return 0.0
-                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').replace('\xa0', '').strip()
-                if ',' in val_str and '.' in val_str:
-                    if val_str.find('.') < val_str.find(','):
-                        val_str = val_str.replace('.', '').replace(',', '.')
-                    else:
-                        val_str = val_str.replace(',', '').replace('.', '.')
-                elif ',' in val_str:
-                    val_str = val_str.replace(',', '.')
-                try:
-                    return float(val_str)
-                except ValueError:
-                    return 0.0
-
-            df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
-            df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
-
-            total_mv = df['Cleaned_MV'].sum()
-            total_weight = df['Cleaned_Weight'].sum()
-
-            if total_weight < 1.0 and total_mv > 0.0:
-                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
-            elif total_mv > 0.0:
-                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
-
-            portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
-            sector_distribution = {}
-
-            # Opret en midlertidig screener til at udføre auto-detektering på dine nuværende positioner
-            temp_screener = ScreenerComplianceAgent([])
-
-            for _, row in df.iterrows():
-                row_weight = row['Cleaned_Weight']
-                if row_weight <= 0.0:
-                    continue
-
-                symbol = str(row.get(ticker_col, "")).strip().upper()
-                drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
-                aktivklasse_val = normalize_string(row.get(aktivklasse_col, "")) if aktivklasse_col else ""
-                sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
-
-                # Hvis brugeren har overstyret i arket, bruger vi det
-                combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
-                
-                category = None
-                subsector = None
-
-                if "sukuk" in combined_text:
-                    category = "Sukuk"
-                    subsector = "Sukuk"
-                elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
-                    category = "Råvarer"
-                    subsector = "Commodities"
-                elif any(word in combined_text for word in ["kontant", "cash", "private"]):
-                    category = "Kontanter/Private"
-                    subsector = "Cash"
-                elif "aktie" in combined_text:
-                    category = "Aktier"
-
-                # Hvis intet er overstyret i Excel-arket, slår vi det op live på yfinance!
-                if not category or not subsector:
-                    try:
-                        t = yf.Ticker(symbol)
-                        info = t.info
-                        sec = info.get("sector", "Other")
-                        ind = info.get("industry", "Other")
-                        
-                        cat_detect, sub_detect = temp_screener.map_to_category_and_sector(symbol, sec, ind)
-                        category = category if category else cat_detect
-                        subsector = subsector if subsector else sub_detect
-                    except Exception:
-                        category = category if category else "Aktier"
-                        subsector = subsector if subsector else "Other"
-
-                # Læg vægtene sammen
-                if category in portfolio_distribution:
-                    portfolio_distribution[category] += row_weight
-                
-                if subsector not in sector_distribution:
-                    sector_distribution[subsector] = 0.0
-                sector_distribution[subsector] += row_weight
-
-            return portfolio_distribution, sector_distribution
-        except Exception as e:
-            print(f"Fejl under indlæsning: {str(e)}")
-            return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}, {}
-
-    def get_current_holdings_details(self) -> list:
-        try:
-            raw_df = self._read_tab_as_df("Beholdninger")
-            df = self._clean_and_align_df(raw_df, "ticker")
-            
-            ticker_col = self._find_column_by_keyword(df, "ticker")
-            position_col = self._find_column_by_keyword(df, "position") or self._find_column_by_keyword(df, "navn")
-            mv_col = self._find_column_by_keyword(df, "markedsværdi")
-            sektor_col = self._find_column_by_keyword(df, "sektor")
-            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
-            
-            holdings = []
-            for _, row in df.iterrows():
-                ticker = str(row.get(ticker_col, "")).strip().upper()
-                if ticker and not pd.isna(row.get(ticker_col)) and ticker not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
-                    holdings.append({
-                        "ticker": ticker,
-                        "name": str(row.get(position_col, ticker)).strip(),
-                        "market_value": str(row.get(mv_col, "0.00 DKK")).strip(),
-                        "sector": str(row.get(sektor_col, "N/A")).strip(),
-                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip()
-                    })
-            return holdings
-        except Exception as e:
-            print(f"Fejl: {str(e)}")
-            return []
-
-    def get_watchlist_tickers(self) -> list:
-        try:
-            raw_df = self._read_tab_as_df("Opsummering")
-            df = self._clean_and_align_df(raw_df, "huller")
-            watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
-            
-            tickers = []
-            if watchlist_col:
-                raw_series = df[watchlist_col]
-            else:
-                if len(df.columns) >= 14:
-                    raw_series = df.iloc[:, 13]
-                else:
-                    return []
-
-            for val in raw_series:
-                if pd.isna(val):
-                    continue
-                val_str = str(val).strip().upper()
-                if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
-                    if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
-                        tickers.append(val_str)
-            return list(set(tickers))
-        except Exception as e:
-            return []
-
-
-# =====================================================================
-#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION)
-# =====================================================================
-class PortfolioManagerAgent:
-    def __init__(self, current: dict, target: dict):
-        self.current = current
-        self.target = target
-
-    def identify_underweighted_focus(self) -> tuple:
-        underweight_candidates = []
-        for category, target_val in self.target.items():
-            curr_val = self.current.get(category, 0.0)
-            deficit = target_val - curr_val
-            if deficit > 0.0:
-                underweight_candidates.append((category, deficit))
+    try:
+        t = yf.Ticker(sym)
+        info = t.info
+        sec = info.get("sector", "Other")
+        ind = info.get("industry", "Other")
         
-        if not underweight_candidates:
-            return list(self.target.keys())[0], 0.0
-
-        underweight_candidates.sort(key=lambda x: x[0])
-        day_of_year = datetime.datetime.now().timetuple().tm_yday
-        index = day_of_year % len(underweight_candidates)
-        
-        focus_category, deficit = underweight_candidates[index]
-        return focus_category, deficit
+        temp_screener = ScreenerComplianceAgent([], target_category=target_category)
+        cat, sub_sec = temp_screener.map_to_category_and_sector(sym, sec, ind)
+        return cat, sub_sec
+    except Exception:
+        return "Aktier", "Other"
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (MED AUTOMATISK ZOYA-CRAWLER & DYN-MAPPING)
+#  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
+# =====================================================================
+def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
+    wb = openpyxl.Workbook()
+    
+    # 1. FANEN: Beholdninger
+    ws1 = wb.active
+    ws1.title = "Beholdninger"
+    
+    headers1 = [
+        "Position", "Ticker", "Status", "Antal", "Kurs (DKK)", 
+        "Markedsværdi (DKK)", "Aktivklasse", "Drivkraft", "Sektor", 
+        "Region", "Porteføljevægt", "Rolle", "Kommentar / tese"
+    ]
+    ws1.append(headers1)
+    
+    for idx, item in enumerate(holdings_list, start=2):
+        name = item.get("Company Name", "Other")
+        symbol = item.get("Ticker", "Other")
+        shares = int(item.get("Shares", 1))
+        cat = item.get("Category", "Aktier")
+        sec = item.get("Sector", "Other")
+        
+        # Hvis det er et manuelt aktiv
+        if "PVT_" in symbol or "CASH_" in symbol:
+            val = float(item.get("manual_value", 1000))
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value="")
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=1)
+            ws1.cell(row=idx, column=5, value=val)
+            ws1.cell(row=idx, column=6, value=val)
+        else:
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value=symbol)
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=shares)
+            ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
+            ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')
+            
+        ws1.cell(row=idx, column=7, value=cat)
+        ws1.cell(row=idx, column=8, value="")
+        ws1.cell(row=idx, column=9, value=sec)
+        ws1.cell(row=idx, column=10, value="Global")
+        ws1.cell(row=idx, column=11, value=f'=F{idx}/SUM(F$2:F$100)')
+        ws1.cell(row=idx, column=12, value="")
+        ws1.cell(row=idx, column=13, value="")
+
+    # 2. FANEN: Opsummering
+    ws2 = wb.create_sheet(title="Opsummering")
+    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
+    ws2.append(headers2)
+    
+    # Skriv watchlist i Kolonne N (14)
+    for idx, ticker in enumerate(watchlist_list, start=2):
+        ws2.cell(row=idx, column=14, value=ticker)
+        
+    excel_data = io.BytesIO()
+    wb.save(excel_data)
+    excel_data.seek(0)
+    return excel_data.getvalue()
+
+
+# =====================================================================
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK SØGNING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -354,7 +287,7 @@ class ScreenerComplianceAgent:
         
         url = f"https://zoya.finance/stocks/{clean_symbol}"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0'
         }
         try:
             response = requests.get(url, headers=headers, timeout=8)
@@ -368,43 +301,93 @@ class ScreenerComplianceAgent:
         except Exception:
             return None
 
-    def map_to_category_and_sector(self, symbol: str, sector: str, industry: str) -> tuple:
-        sym = symbol.upper()
+    def map_to_category_and_sector(self, symbol: str, sector: str = None, industry: str = None) -> tuple:
+        sym = symbol.upper().strip()
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
-        # Sukuk
+        # 1. Tjek altid det lynhurtige statiske kartotek først
+        lookup_sym = sym.split('.')[0]
+        for k, v in failsafe_db.items():
+            if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
+                if v[0] == "Sukuk" and self.target_category == "Kontanter/Private":
+                    return "Kontanter/Private", "Sukuk & Fixed Income"
+                return v[0], v[1]
+
+        # 2. Hvis ikke i kartoteket, kør dynamisk mapping baseret på yfinance data
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             if self.target_category == "Kontanter/Private":
-                return "Kontanter/Private", "Sukuk"
-            return "Sukuk", "Sukuk"
+                return "Kontanter/Private", "Sukuk & Fixed Income"
+            return "Sukuk", "Sukuk & Fixed Income"
             
-        # Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
-            return "Råvarer", "Mining royalty"
+            return "Råvarer", "Mining & Royalty Streams"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
-            return "Råvarer", "Industrielle metaller / kobber"
+            return "Råvarer", "Industrial Metals & Copper"
 
-        # Kontanter / short-term
         if "cash" in sym or "money market" in sec_l:
-            return "Kontanter/Private", "Cash Equivalents"
+            return "Kontanter/Private", "Cash & Liquidity Reserves"
 
-        # Dynamic fallback for alle øvrige selskaber og aktie-ETF'er
-        # Vi bruger selskabets reelle yfinance industri som delsektor helt automatisk!
+        # Dynamisk kobling til de nye overordnede kategorier
+        if "pharmaceutical" in ind_l or "biotechnology" in ind_l:
+            return "Aktier", "Pharmaceuticals & Biotech"
+        if "medical" in ind_l or "healthcare" in sec_l:
+            return "Aktier", "Medical Devices & MedTech"
+        if "wind" in ind_l or "renewable" in ind_l or "solar" in ind_l:
+            return "Aktier", "Clean Energy & Wind"
+        if "cable" in ind_l or "electrical" in ind_l:
+            return "Aktier", "Smart Grid & Electrification"
+        if "semiconductor" in ind_l or "semiconductor" in sec_l:
+            return "Aktier", "Semiconductors & Hardware"
+        if "software" in ind_l or "software" in sec_l or "technology" in sec_l:
+            return "Aktier", "Enterprise Software & SaaS"
+        if "building" in ind_l or "construction" in ind_l:
+            return "Aktier", "Construction & Building Materials"
+        if "chemicals" in ind_l:
+            return "Aktier", "Chemicals & Advanced Materials"
+        if "machinery" in ind_l or "industrials" in sec_l:
+            return "Aktier", "Industrial Machinery & Automation"
+        if "infrastructure" in ind_l or "utilities" in sec_l:
+            return "Aktier", "Global Infrastructure"
+        if "staples" in sec_l or "packaged foods" in ind_l or "consumer defensive" in sec_l:
+            return "Aktier", "Consumer Defensive & Staples"
+        if "fertilizer" in ind_l or "agriculture" in ind_l:
+            return "Aktier", "Agriculture & Food Security"
+        if "logistics" in ind_l or "shipping" in ind_l:
+            return "Aktier", "Logistics & Global Shipping"
+        if "internet" in ind_l or "e-commerce" in ind_l:
+            return "Aktier", "E-Commerce & Digital Retail"
+        if "water" in ind_l or "environmental" in ind_l:
+            return "Aktier", "Water Infrastructure & Desalination"
+
+        # Dynamisk fallback
         dynamic_subsector = industry if (industry and industry != "Other") else sector
         return "Aktier", dynamic_subsector
 
     def screen_ticker(self, symbol: str) -> dict:
         try:
+            # Virtuelle/manuelle tickers for kontanter/private skal altid bestå screening
+            if "CASH_" in symbol or "PVT_" in symbol:
+                return {
+                    "symbol": symbol,
+                    "passed": True,
+                    "name": symbol.replace("CASH_", "").replace("PVT_", ""),
+                    "pe_ratio": "N/A",
+                    "debt_ratio": "0.00% (Manual)",
+                    "sector": "Manual Asset",
+                    "industry": "Manual Asset",
+                    "category": "Kontanter/Private",
+                    "subsector": "Cash & Liquidity Reserves",
+                    "is_etf": False
+                }
+
             zoya_compliant = self.check_zoya_live_compliance(symbol)
             
             if zoya_compliant is False:
                 return {"symbol": symbol, "passed": False, "reason": "Disqualified by Zoya's live public Shariah assessment."}
             elif zoya_compliant is True:
                 print(f"Zoya Live-tjek bekræfter: {symbol} er Shariah-compliant.")
-            else:
-                print(f"Zoya Live-tjek utilgængeligt for {symbol}. Falder tilbage til matematisk balance-screening.")
 
             ticker_obj = yf.Ticker(symbol)
             info = ticker_obj.info
@@ -496,17 +479,19 @@ class CouncilAgent:
         self.api_key = api_key
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={self.api_key}"
 
-    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str, sector_distribution_str: str) -> str:
+    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str, sector_distribution_str: str, user_name: str, horizon: str) -> str:
         candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
         english_category = DISPLAY_CATEGORIES.get(category, category)
         
         prompt = f"""
-        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, Wazir [3].
+        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, {user_name}.
         
         THE INVESTOR PROFILE & MODEL:
-        - Overarching Strategic Model: Customize based on Wazir's targets [3].
-        - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%) [3].
-        - Current Portfolio Allocations (Target vs Actual): {current_portfolio_str} [3].
+        - Investor's Name: {user_name}
+        - Investment Horizon: {horizon} (This is CRITICAL. Align all advice, timelines, risk-tolerances, and recommendations precisely with this specific time horizon!)
+        - Overarching Strategic Model: Customize based on Wazir's targets.
+        - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%)
+        - Current Portfolio Allocations (Target vs Actual): {current_portfolio_str}
         
         THE INVESTOR'S STRATEGIC SUB-SECTORS (DYNAMICALLY DETECTED FROM THE HOLDINGS):
         {sector_distribution_str}
@@ -518,12 +503,12 @@ class CouncilAgent:
         {candidates_json}
         
         YOUR OBJECTIVE (DELIVER ENTIRE BRIEFING IN BEAUTIFUL ENGLISH HTML):
-        Generate a complete, institutional-grade, highly engaging HTML investment newsletter in English [3].
+        Generate a complete, institutional-grade, highly engaging HTML investment newsletter in English.
         
-        Brug udelukkende inline CSS-styling for maximum compatibility with Gmail [3].
+        Brug udelukkende inline CSS-styling for maximum compatibility with Gmail.
         Design guidelines:
         - Main container: `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 25px; background-color: #ffffff; color: #334155; line-height: 1.6;">`
-        - Colors: Dark Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`) [3].
+        - Colors: Dark Slate (`#0F172A`) for headings. Accent/highlights: Warm Gold/Sand (`#C5A880`).
         - Cards: Each of the screened candidates should be enclosed in a distinct card: `<div style="border: 1px solid #E2E8F0; padding: 20px; margin-bottom: 25px; border-radius: 8px; background-color: #F8FAFC;">`
         - Debate box: Each adviser's turn must use the distinct left-bordered styling:
           - Contrarian: `border-left: 4px solid #EF4444; background: #FEF2F2; padding: 15px; margin-bottom: 15px;` (Red border)
@@ -536,17 +521,18 @@ class CouncilAgent:
         REPORT OUTLINE (ENGLISH):
         
         <h1>🗳️ LLM Council Strategic Briefing</h1>
-        <p><strong>Prepared exclusively for:</strong> Wazir</p>
+        <p><strong>Prepared exclusively for:</strong> {user_name}</p>
+        <p><strong>Investment Horizon:</strong> {horizon}</p>
         <p><strong>Focus tonight:</strong> {english_category} (Deficit: {deficit:.2f}%)</p>
         
         <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
         <h2>SECTION 1 — PORTFOLIO DIAGNOSTIC & INDIRECT EXPOSURES</h2>
-        Analyze Wazir's current holdings and how they map to their strategic sub-sectors [3]. Do existing assets already provide satisfactory indirect exposure to the focus theme [3]? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
+        Analyze {user_name}'s current holdings and how they map to their strategic sub-sectors. Do existing assets already provide satisfactory indirect exposure to the focus theme? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
         
         <h2>SECTION 2 — DEEP-DIVE CONSULTANT ANALYSIS (UP TO 10 SCREENED CANDIDATES)</h2>
         For each candidate, write an elegant card covering:
-        1. <strong>Investment Case</strong> (How it balances Wazir's current assets).
+        1. <strong>Investment Case</strong> (How it balances {user_name}'s current assets, keeping their {horizon} horizon in mind).
         2. <strong>Financial Highlights</strong> (Omsætningsvækst, marginer, cash flow based on live data).
         3. <strong>Future Outlook & Pipeline</strong>.
         4. <strong>Risk Assessment</strong>.
@@ -554,10 +540,10 @@ class CouncilAgent:
         6. <strong>Analyst Insight & Sources</strong>: Insert exactly 2 clickable links structured beautifully in HTML (e.g. `<a href="https://seekingalpha.com/symbol/TICKER" style="color: #C5A880; text-decoration: none; font-weight: bold;">Seeking Alpha</a>`).
         
         <h2>SECTION 3 — THE ASYNCHRONOUS COUNCIL DEBAT (TOP-3)</h2>
-        Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs [3]. Show conflict, arguments on valuation, capex, and macro timing.
+        Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs. Show conflict, arguments on valuation, capex, and macro timing.
         
         <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (RECOMMENDATION)</h2>
-        The Chairman's final clear directive enclosed in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for Wazir's Saxo Investor account over the next 7 days [3].
+        In Section 4, the Chairman must NOT command the investor to buy or take action. Instead, the Chairman must strongly advise and urge the investor to critically evaluate and consider the council's comprehensive proposal. The tone should be highly advisory, objective, and respectful, emphasizing that the final capital allocation decision rests solely on the investor's own assessment. Enclose this callout in the gold callout box. Conclude with a highly precise, step-by-step action plan for {user_name}'s Saxo Investor account over the next 7 days.
         
         Return ONLY the raw HTML code. Do NOT enclose in markdown tags like "```html".
         """
@@ -587,7 +573,7 @@ class PodcastAgent:
             os.environ["GEMINI_API_KEY"] = self.api_key
             os.environ["GOOGLE_API_KEY"] = self.api_key
 
-    def generate_podcast_audio(self, report_html: str) -> str:
+    def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
         custom_config = {
@@ -600,16 +586,16 @@ class PodcastAgent:
             "output_language": "English",
             "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk"],
             "user_instructions": (
-                "Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
-                "The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, Wazir [3]. "
-                "Then, they introduce and interview our 5 resident advisers: "
-                "Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
-                "First-Principles (the logical mathematician using raw numbers), "
-                "Expansionist (the highly bullish growth hunter wanting to deploy capital), "
-                "Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
-                "and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
-                "The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
-                "giving Wazir a highly clear, actionable next step for his Saxo account."
+                f"Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
+                f"The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, {user_name}. "
+                f"Then, they introduce and interview our 5 resident advisers: "
+                f"Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
+                f"First-Principles (the logical mathematician using raw numbers), "
+                f"Expansionist (the highly bullish growth hunter wanting to deploy capital), "
+                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
+                f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging). "
+                f"The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
+                f"giving {user_name} a highly clear, actionable next step for his Saxo account."
             )
         }
         
@@ -627,11 +613,11 @@ class PodcastAgent:
 
 
 # =====================================================================
-#  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
+#  DELIVERY AGENT (HTML & VEDHÆFTNINGER SMTP)
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
-    def send_email(subject: str, html_content: str, attachment_path: str = None):
+    def send_email(subject: str, html_content: str, attachments: list = None):
         if not EMAIL_PASSWORD or EMAIL_PASSWORD.strip() == "":
             print("EMAIL_PASSWORD mangler i GitHub Secrets. Udskriver HTML i konsol:")
             print(html_content)
@@ -643,17 +629,26 @@ class DeliveryAgent:
         msg["Subject"] = subject
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
-        if attachment_path and os.path.exists(attachment_path):
-            print(f"Vedhæfter lydfil: {attachment_path}...")
-            with open(attachment_path, "rb") as attachment:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(attachment.read())
-                encoders.encode_base64(part)
-                part.add_header(
-                    "Content-Disposition",
-                    f"attachment; filename= {os.path.basename(attachment_path)}",
-                )
-                msg.attach(part)
+        if attachments:
+            for att in attachments:
+                path = att.get("path")
+                data = att.get("data")
+                name = att.get("name")
+                
+                if (path and os.path.exists(path)) or data:
+                    part = MIMEBase("application", "octet-stream")
+                    if data:
+                        part.set_payload(data)
+                    else:
+                        with open(path, "rb") as attachment:
+                            part.set_payload(attachment.read())
+                    
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f"attachment; filename= {name}",
+                    )
+                    msg.attach(part)
 
         try:
             print(f"Forbinder til SMTP server ({SMTP_SERVER}:{SMTP_PORT}) med afsender-login: {EMAIL_SENDER}...")
@@ -668,14 +663,14 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW
+#  ORCHESTRATOR / SYSTEM FLOW (HER ANVENDES NU DET RETTEDE KARTOTEK)
 # =====================================================================
 def main():
     try:
         print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # 1. Hent investors aktuelle vægte samt de 21 delsektorer
+        # 1. Hent investors aktuelle vægte samt de 21 delsektorer (Opdateret med hybrid-database)
         current_portfolio_weights, sector_distribution = sheets_agent.get_current_weights_and_sectors()
         print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
         print(f"Beregnet delsektor-fordeling: {sector_distribution}")
@@ -760,13 +755,15 @@ def main():
                 deficit=deficit,
                 current_portfolio_str=current_weights_str,
                 current_holdings_str=current_holdings_str,
-                sector_distribution_str=sector_distribution_str
+                sector_distribution_str=sector_distribution_str,
+                user_name="Wazir",
+                horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast via det avancerede Podcastfy
+            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
-            generated_file = podcast_agent.generate_podcast_audio(council_report_html)
+            generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir")
             
             if generated_file and os.path.exists(generated_file):
                 try:
@@ -778,12 +775,21 @@ def main():
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
 
-        # 10. Send den engelske HTML-rapport og MP3-podcast til din indbakke
+        # Klargør begge vedhæftninger til din natlige mail!
+        attachments_list = []
+        if podcast_compiled:
+            attachments_list.append({"path": output_mp3, "name": "Wazir_LLM_Council_Podcast.mp3"})
+            
+        # Generer dit live-formel Excel-ark til din natlige mail
+        excel_raw_bytes = generate_excel_template_bytes(current_holdings, watchlist_tickers)
+        attachments_list.append({"data": excel_raw_bytes, "name": "Wazir_Live_Portfolio_Template.xlsx"})
+
+        # 10. Send HTML-rapport og MP3-podcast til din indbakke
         subject = f"[LLM Council] Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
         DeliveryAgent.send_email(
             subject=subject, 
             html_content=council_report_html, 
-            attachment_path=output_mp3 if podcast_compiled else None
+            attachments=attachments_list # Sender nu begge filer direkte til mailen automatisk!
         )
 
     except Exception as e:
