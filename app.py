@@ -123,6 +123,7 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 if not EMAIL_RECEIVER or EMAIL_RECEIVER.strip() == "":
     EMAIL_RECEIVER = "addoncreatives@gmail.com"
 
+# Hent og rens adgangskoden
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 if EMAIL_PASSWORD:
     EMAIL_PASSWORD = EMAIL_PASSWORD.replace(" ", "").strip()
@@ -140,6 +141,41 @@ def normalize_string(s: str) -> str:
     s = re.sub(r'[^a-z0-9æøå]', '', s)
     s = s.replace("etfer", "etf").replace("etfs", "etf")
     return s
+
+
+# =====================================================================
+#  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
+# =====================================================================
+def search_ticker_by_name(query: str) -> str:
+    """
+    Søger automatisk på Yahoo Finances live-API efter den korrekte 
+    ticker-kode baseret på et selskabsnavn eller fritext [3].
+    """
+    if not query or pd.isna(query):
+        return None
+    
+    query_clean = str(query).strip()
+    
+    # Hvis brugeren allerede har indtastet en gyldig ticker-kode (fx MSFT eller NOVO-B.CO)
+    # behøver vi ikke at søge efter den.
+    if re.match(r'^[A-Z0-9\.\-]+$', query_clean) and len(query_clean) < 10 and "." in query_clean:
+        return query_clean
+
+    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_clean}"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=6)
+        if response.status_code == 200:
+            data = response.json()
+            quotes = data.get("quotes", [])
+            if quotes:
+                # Retunér den første og mest relevante ticker fra listen
+                return quotes[0].get("symbol")
+    except Exception as e:
+        print(f"Søgning fejlede for '{query_clean}': {str(e)}")
+    return None
 
 
 # =====================================================================
@@ -180,10 +216,6 @@ class GoogleSheetsAgent:
         return None
 
     def get_current_weights_and_sectors(self) -> tuple:
-        """
-        Læser fanen 'Beholdninger', identificerer vægtene og fordeler dem 
-        både på hovedkasserne og på de specifikke delsektorer helt automatisk.
-        """
         try:
             raw_df = self._read_tab_as_df("Beholdninger")
             df = self._clean_and_align_df(raw_df, "ticker")
@@ -257,7 +289,6 @@ class GoogleSheetsAgent:
                 elif "aktie" in combined_text:
                     category = "Aktier"
 
-                # Hvis intet er overstyret i Excel-arket, slår vi det op live på yfinance eller i vores kartotek!
                 if not category or not subsector:
                     try:
                         t = yf.Ticker(symbol)
@@ -366,7 +397,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (MED AUTOMATISK ZOYA-CRAWLER & DYN-MAPPING)
+#  SCREENER & COMPLIANCE AGENT (AUTOMATISK DETEKTERING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -385,7 +416,7 @@ class ScreenerComplianceAgent:
         
         url = f"https://zoya.finance/stocks/{clean_symbol}"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, bilge/Gecko) Chrome/115.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         try:
             response = requests.get(url, headers=headers, timeout=8)
@@ -405,7 +436,6 @@ class ScreenerComplianceAgent:
         ind_l = industry.lower() if industry else ""
 
         # 1. Tjek altid det lynhurtige statiske kartotek først (omgår yfinance fejl!)
-        # Vi fjerner eventuelle børskoder inden opslag (f.eks. NOVO-B.CO -> NOVO-B)
         lookup_sym = sym.split('.')[0]
         for k, v in STATIC_TICKER_MAP.items():
             if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
@@ -767,17 +797,18 @@ else:
     custom_targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 
 # =====================================================================
-#  STEP 2: ENKELT, FULDAUTOMATISERET HOLDINGS ENTRANCE
+#  STEP 2: ENKELT, FULDAUTOMATISERET HOLDINGS ENTRANCE (BRUG SELSKABSNAVNE!)
 # =====================================================================
 st.subheader("Step 2: Your Active Portfolio")
-st.write("Enter your active positions. Enter ONLY Ticker and Shares; our backend automatically detects Category and Sector live [3]!")
+st.write("Enter your active positions. Enter ONLY Company Name (e.g. 'Novo Nordisk') and Shares. "
+         "Our background engine will automatically find the ticker and detect Category and Sector live [3]!")
 
 default_holdings = [
-    {"Ticker": "NOVO-B.CO", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Ticker": "MSAU.L", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Ticker": "IGDA.L", "Shares": 23, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Ticker": "SKUK", "Shares": 100, "Category Override (Optional)": None, "Sector Override (Optional)": None},
-    {"Ticker": "WPM", "Shares": 5, "Category Override (Optional)": None, "Sector Override (Optional)": None}
+    {"Company Name or Ticker": "Novo Nordisk", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
+    {"Company Name or Ticker": "Saudi Arabia ETF", "Shares": 10, "Category Override (Optional)": None, "Sector Override (Optional)": None},
+    {"Company Name or Ticker": "Invesco Islamic Global", "Shares": 23, "Category Override (Optional)": None, "Sector Override (Optional)": None},
+    {"Company Name or Ticker": "iShares USD Sukuk", "Shares": 100, "Category Override (Optional)": None, "Sector Override (Optional)": None},
+    {"Company Name or Ticker": "Wheaton Precious Metals", "Shares": 5, "Category Override (Optional)": None, "Sector Override (Optional)": None}
 ]
 
 df_default = pd.DataFrame(default_holdings)
@@ -787,7 +818,7 @@ edited_df = st.data_editor(
     df_default,
     num_rows="dynamic",
     column_config={
-        "Ticker": st.column_config.TextColumn("Ticker", help="e.g. MSFT, NOVO-B.CO, SKUK"),
+        "Company Name or Ticker": st.column_config.TextColumn("Company Name or Ticker", help="e.g. 'Novo Nordisk', 'Microsoft', or 'WPM'"),
         "Shares": st.column_config.NumberColumn("Shares", min_value=1),
         "Category Override (Optional)": st.column_config.SelectboxColumn("Category Override (Optional)", options=["Aktier", "Sukuk", "Råvarer", "Kontanter/Private"]),
         "Sector Override (Optional)": st.column_config.SelectboxColumn("Sector Override (Optional)", options=TARGET_SUBSECTORS)
@@ -813,7 +844,7 @@ watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.str
 async def process_instant_briefing(receiver_email, holdings_df, watchlist, target_allocations):
     """
     Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
-    Detekterer automatisk sektorer og kategorier live ved hjælp af yfinance [3].
+    Søger automatisk efter selskabsnavne og finder den korrekte ticker live [3]!
     """
     total_assets_count = len(holdings_df)
     
@@ -825,7 +856,16 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
     
     # Looper over indtastede positioner og detekterer kategorier/sektorer helt automatisk live!
     for row in holdings_df.itertuples():
-        symbol = str(row.Ticker).strip().upper()
+        raw_input = getattr(row, "Company_Name_or_Ticker", "")
+        shares = int(row.Shares)
+        
+        # 1. LIVE SEARCH-TO-TICKER: Konverter selskabsnavn til rigtig Yahoo-ticker! [3]
+        symbol = search_ticker_by_name(raw_input)
+        if not symbol:
+            print(f"Kunne ikke finde ticker for '{raw_input}'. Springer over.")
+            continue
+            
+        print(f"Konverteret '{raw_input}' -> Ticker: '{symbol}'")
         
         # Hent valgfri overstyringer
         cat_override = getattr(row, "Category_Override_Optional", None)
@@ -904,7 +944,16 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
 
     # 6. Kør Gemini 3.5 Flash til nyhedsbrevet
     current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
-    current_holdings = [{"ticker": r.Ticker, "asset_class": r.Aktivklasse if hasattr(r, 'Aktivklasse') else "Aktier"} for r in holdings_df.itertuples()]
+    # Gemmer tickers i listen til Gemini
+    current_holdings = []
+    for r in holdings_df.itertuples():
+        raw_name = getattr(r, "Company_Name_or_Ticker", "")
+        resolved_sym = search_ticker_by_name(raw_name)
+        current_holdings.append({
+            "ticker": resolved_sym if resolved_sym else raw_name,
+            "name": raw_name,
+            "asset_class": r.Category_Override_Optional if (hasattr(r, 'Category_Override_Optional') and r.Category_Override_Optional) else "Aktier"
+        })
     current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
     sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
     
@@ -935,10 +984,10 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
     subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
     
     # Sætter modtager-adressen dynamisk inden afsendelse
-    global EMAIL_RECEIVER
-    EMAIL_RECEIVER = receiver_email
+    import llm_council
+    llm_council.EMAIL_RECEIVER = receiver_email
     
-    DeliveryAgent.send_email(
+    llm_council.DeliveryAgent.send_email(
         subject=subject,
         html_content=report_html,
         attachment_path=output_mp3 if podcast_compiled else None
