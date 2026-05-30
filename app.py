@@ -390,7 +390,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (DYNAMISK MAPPING)
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK SØGNING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -729,337 +729,140 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  STREAMLIT BRUGERGRÆNSEFLADE (SAMLING AF APP.PY)
+#  ORCHESTRATOR / SYSTEM FLOW (HER RETTES AUTOMATISK VED HÆFTNINGS-MANGLEN FRA GITHUB)
 # =====================================================================
-
-# Custom CSS til styling (Slate & Gold tema)
-st.markdown("""
-    <style>
-    .main-title {
-        color: #0F172A;
-        font-family: 'Georgia', serif;
-        font-size: 38px;
-        font-weight: bold;
-        text-align: center;
-        margin-bottom: 5px;
-    }
-    .subtitle {
-        color: #C5A880;
-        font-family: 'Helvetica Neue', sans-serif;
-        font-size: 16px;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        margin-bottom: 30px;
-    }
-    .found-box {
-        background-color: #F8FAFC; 
-        padding: 15px; 
-        border-radius: 8px; 
-        border: 1px solid #C5A880; 
-        margin-bottom: 15px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
-
-st.write("Welcome, Investor. This portal configures your personal, automated investment advisory department. "
-         "Once submitted, you will receive your **first investment dossier and audio podcast in your inbox within 60 seconds**.")
-
-# Initialize session state for active holdings if not present
-if "holdings" not in st.session_state:
-    st.session_state.holdings = [
-        {"Company Name": "Novo Nordisk", "Ticker": "NOVO-B.CO", "Shares": 10, "Category": "Aktier", "Sector": "Pharma"},
-        {"Company Name": "Saudi Arabia ETF", "Ticker": "MSAU.L", "Shares": 10, "Category": "Aktier", "Sector": "ETF - regional"},
-        {"Company Name": "Invesco Islamic Global", "Ticker": "IGDA.L", "Shares": 23, "Category": "Aktier", "Sector": "ETF - global"},
-        {"Company Name": "iShares USD Sukuk", "Ticker": "SKUK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk"},
-        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining royalty"}
-    ]
-
-# =====================================================================
-#  STEP 1: BRUGEROPLYSNINGER, NAVN & DYNAMISKE MÅLVÆGTE
-# =====================================================================
-st.subheader("Step 1: Your Personal Profile")
-col_n1, col_n2 = st.columns(2)
-with col_n1:
-    user_name = st.text_input("Enter your Name:", value="Wazir")
-with col_n2:
-    user_email = st.text_input("Enter your Email Address to receive the briefings:", placeholder="your.name@gmail.com")
-
-st.subheader("Step 1.2: Your Investment Horizon")
-
-# Ændret til udelukkende antal år (fjerner antagende ord som "Conservative/Growth")
-investment_horizon = st.selectbox(
-    "Select your Investment Horizon:", 
-    [
-        "1-3 years", 
-        "3-7 years", 
-        "7-15 years", 
-        "15+ years"
-    ],
-    index=2
-)
-
-st.subheader("Step 1.5: Customize Your Target Allocations")
-st.write("Define your target weighting for the major asset classes. The system will automatically normalize them to sum to 100%.")
-
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    target_stocks = st.number_input("Equities (%)", min_value=0.0, max_value=100.0, value=25.0)
-with col2:
-    target_sukuk = st.number_input("Sukuk (%)", min_value=0.0, max_value=100.0, value=25.0)
-with col3:
-    target_commodities = st.number_input("Commodities (%)", min_value=0.0, max_value=100.0, value=25.0)
-with col4:
-    target_cash = st.number_input("Cash/Private (%)", min_value=0.0, max_value=100.0, value=25.0)
-
-# Normaliser mål-vægte så de summer til 100%
-total_target = target_stocks + target_sukuk + target_commodities + target_cash
-if total_target > 0:
-    custom_targets = {
-        "Aktier": (target_stocks / total_target) * 100.0,
-        "Sukuk": (target_sukuk / total_target) * 100.0,
-        "Råvarer": (target_commodities / total_target) * 100.0,
-        "Kontanter/Private": (target_cash / total_target) * 100.0
-    }
-else:
-    custom_targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
-
-# =====================================================================
-#  STEP 2: ENKELT, FULDAUTOMATISERET SØG-OG-TILFØJ ENGINE (FINTECH STYLE)
-# =====================================================================
-st.subheader("Step 2: Add Assets to Your Active Portfolio")
-st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares [3]!")
-
-# Live søgefelt
-search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'Novo Nordisk', 'Microsoft', 'Gold'):", "")
-
-if search_query:
-    resolved_ticker = search_ticker_by_name(search_query)
-    if resolved_ticker:
-        try:
-            t = yf.Ticker(resolved_ticker)
-            info = t.info
-            comp_name = info.get("longName", resolved_ticker)
-            sec = info.get("sector", "Other")
-            ind = info.get("industry", "Other")
-            
-            # Map til kategori og delsektor
-            temp_screener = ScreenerComplianceAgent([])
-            cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
-            
-            # Vis den live-fundne information direkte på skærmen!
-            st.markdown(f"""
-            <div class="found-box">
-                <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Found Asset:</span> {comp_name} ({resolved_ticker})<br>
-                <span style="color: #334155; font-weight: bold;">Asset Class:</span> {cat} | 
-                <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col_shares, col_add = st.columns([1, 1])
-            with col_shares:
-                shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
-            with col_add:
-                st.write(" ") # Padding
-                st.write(" ")
-                if st.button("➕ Add to Portfolio"):
-                    # Tjek om den allerede findes i listen, opdater ellers tilføj
-                    exists = False
-                    for h in st.session_state.holdings:
-                        if h["Ticker"] == resolved_ticker:
-                            h["Shares"] += shares_to_add
-                            exists = True
-                            break
-                    if not exists:
-                        st.session_state.holdings.append({
-                            "Company Name": comp_name,
-                            "Ticker": resolved_ticker,
-                            "Shares": shares_to_add,
-                            "Category": cat,
-                            "Sector": sub_sec
-                        })
-                    st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
-                    time.sleep(1)
-                    st.rerun() # Genstart siden så tabellen opdateres med det samme!
-        except Exception as e:
-            st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
-    else:
-        st.warning(f"Could not find any assets matching '{search_query}'. Please try another name.")
-
-st.write("---")
-st.write("### Your Current Portfolio")
-if st.session_state.holdings:
-    holdings_df = pd.DataFrame(st.session_state.holdings)
-    
-    # Lad brugeren ændre Shares direkte eller slette rækker fra deres aktive portefølje!
-    edited_holdings = st.data_editor(
-        holdings_df,
-        num_rows="dynamic", # Gør det muligt at slette rækker ved brug af checkbox til venstre!
-        column_config={
-            "Company Name": st.column_config.TextColumn("Company Name", disabled=True),
-            "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
-            "Shares": st.column_config.NumberColumn("Shares", min_value=1),
-            "Category": st.column_config.TextColumn("Category", disabled=True),
-            "Sector": st.column_config.TextColumn("Sector", disabled=True)
-        },
-        use_container_width=True,
-        key="holdings_editor"
-    )
-    
-    # Hvis brugeren har ændret noget i tabellen, gemmer vi det i session state
-    if not edited_holdings.equals(holdings_df):
-        st.session_state.holdings = edited_holdings.to_dict(orient="records")
-        st.rerun()
-else:
-    st.info("Your portfolio is currently empty. Use the search field above to add assets.")
-
-# =====================================================================
-#  STEP 3: WATCHLIST (VALGFRI)
-# =====================================================================
-st.subheader("Step 3: Your Watchlist (Optional)")
-st.write("Enter tickers to monitor. If left empty, the system will dynamically screen our global Sharia-growth pool [3].")
-watchlist_input = st.text_input(
-    "Enter Tickers (comma-separated):",
-    "TRMB, SAP, SPSK, AEM, NEM"
-)
-
-watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
-
-# =====================================================================
-#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
-# =====================================================================
-async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon):
-    """
-    Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
-    Modtager den præ-klassificerede liste af holdings, hvilket garanterer 100% stabilitet.
-    """
-    total_assets_count = len(holdings_list)
-    
-    portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
-    sector_distribution = {}
-    
-    # 1. Udregn porteføljevægte og delsektorer ud fra den færdig-klassificerede liste i session state!
-    for item in holdings_list:
-        category = item["Category"]
-        subsector = item["Sector"]
+def main():
+    try:
+        print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
+        sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        weight_chunk = (100.0 / total_assets_count)
-        if category in portfolio_distribution:
-            portfolio_distribution[category] += weight_chunk
-        if subsector not in sector_distribution:
-            sector_distribution[subsector] = 0.0
+        # 1. Hent investors aktuelle vægte samt de 21 delsektorer
+        current_portfolio_weights, sector_distribution = sheets_agent.get_current_weights_and_sectors()
+        print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
+        print(f"Beregnet delsektor-fordeling: {sector_distribution}")
+        
+        # 2. Hent de konkrete positioner
+        current_holdings = sheets_agent.get_current_holdings_details()
+        print(f"Hentet {len(current_holdings)} konkrete positioner.")
+        
+        # 3. Hent Watchlist-tickers
+        watchlist_tickers = sheets_agent.get_watchlist_tickers()
+        print(f"Watchlist: {watchlist_tickers}")
+
+        # 4. Find den mest undervægtede kasse i din 4x25%-struktur (Tidsbaseret rotation!)
+        pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
+        focus_category, deficit = pm.identify_underweighted_focus()
+        print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
+
+        # 5. PROAKTIV SØGNING: Kombiner personlig Watchlist med vores globale vækst-pool
+        growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+        combined_candidates = list(set(watchlist_tickers + growth_pool))
+        print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
+
+        # 6. Kør compliance screening (Sharia & Gælds-barrierer)
+        # Vi overfører focus_category til Screener's constructor, så den kan håndtere kontant-proxies dynamisk!
+        print("Screener kandidater mod Sharia- og gældskrav...")
+        screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+        approved_stocks = screener.run_screening(focus_category)
+        print(f"Godkendte kandidater fundet efter screening: {[s['symbol'] for s in approved_stocks]}")
+
+        target_candidates = approved_stocks[:10]
+        
+        if not target_candidates:
+            error_html = f"<h2>Ingen godkendte kandidater fundet i kategorien {focus_category}</h2>"
+            DeliveryAgent.send_email(f"[LLM Council] Alert - Ingen godkendte kandidater i {focus_category}", error_html)
+            return
+
+        # 7. Indhent detaljerede yfinance tal
+        print("Indhenter kvartalstal for de 10 godkendte kandidater...")
+        detailed_candidates_data = []
+        for stock in target_candidates:
+            symbol = stock["symbol"]
+            try:
+                t = yf.Ticker(symbol)
+                info = t.info
+                time.sleep(0.5)
+                
+                rev_growth = info.get("revenueGrowth", "N/A")
+                op_margins = info.get("operatingMargins", "N/A")
+                free_cashflow = info.get("freeCashflow", "N/A")
+                
+                detailed_candidates_data.append({
+                    "symbol": symbol,
+                    "name": stock["name"],
+                    "pe_ratio": stock["pe_ratio"],
+                    "debt_ratio": stock["debt_ratio"],
+                    "sector": stock["sector"],
+                    "industry": stock["industry"],
+                    "is_etf": stock.get("is_etf", False),
+                    "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                    "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                    "free_cash_flow": f"{free_cashflow / 1e6:.2f}M USD/DKK" if isinstance(free_cashflow, (int, float)) else "N/A",
+                    "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                    "currency": info.get("currency", "N/A")
+                })
+            except Exception as e:
+                detailed_candidates_data.append(stock)
+
+        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
+        council_report_html = "<h3>LLM Council fejl</h3>"
+        output_mp3 = "llm_council_podcast.mp3"
+        podcast_compiled = False
+
+        if GEMINI_API_KEY:
+            print("Aktiverer Gemini 3.5 Flash...")
+            current_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
+            current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
+            sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
             
-        sector_distribution[subsector] += weight_chunk
-
-    # 2. Find fokus-kategori baseret på de dynamiske målvægte!
-    pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
-    focus_category, deficit = pm.identify_underweighted_focus()
-    print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
-    
-    # 3. Proaktiv søgning
-    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
-    combined_candidates = list(set(watchlist + growth_pool))
-    
-    # 4. Kør screening
-    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
-    approved_stocks = screener.run_screening(focus_category)
-    target_candidates = approved_stocks[:10]
-    
-    if not target_candidates:
-        return False, "No compliant assets could be found in your focused category."
-
-    # 5. Indhent detaljerede yfinance metrics
-    detailed_candidates_data = []
-    for stock in target_candidates:
-        symbol = stock["symbol"]
-        try:
-            t = yf.Ticker(symbol)
-            info = t.info
-            rev_growth = info.get("revenueGrowth", "N/A")
-            op_margins = info.get("operatingMargins", "N/A")
-            free_cashflow = info.get("freeCashflow", "N/A")
+            council_agent = CouncilAgent(GEMINI_API_KEY)
+            # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
+            council_report_html = council_agent.run_proactive_analysis(
+                candidates_data=detailed_candidates_data,
+                category=focus_category,
+                deficit=deficit,
+                current_portfolio_str=current_weights_str,
+                current_holdings_str=current_holdings_str,
+                sector_distribution_str=sector_distribution_str,
+                user_name="Wazir",
+                horizon="15+ years"
+            )
             
-            detailed_candidates_data.append({
-                "symbol": symbol,
-                "name": stock["name"],
-                "pe_ratio": stock["pe_ratio"],
-                "debt_ratio": stock["debt_ratio"],
-                "sector": stock["sector"],
-                "industry": stock["industry"],
-                "is_etf": stock.get("is_etf", False),
-                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
-                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
-                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
-                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
-                "currency": info.get("currency", "N/A")
-            })
-        except Exception:
-            detailed_candidates_data.append(stock)
+            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter for at undgå fejl på GitHub!)
+            print("Igangsætter Podcastfy-produktion...")
+            podcast_agent = PodcastAgent(GEMINI_API_KEY)
+            generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir") # <-- RETTET HER!
+            
+            if generated_file and os.path.exists(generated_file):
+                try:
+                    import shutil
+                    shutil.copyfile(generated_file, output_mp3)
+                    podcast_compiled = True
+                except Exception as file_err:
+                    print(f"Fejl ved kopiering af lydfil: {str(file_err)}")
+        else:
+            print("Advarsel: GEMINI_API_KEY mangler.")
 
-    # 6. Kør Gemini 3.5 Flash til nyhedsbrevet (inkl. personlige detaljer)
-    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
-    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
-    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
-    
-    council_agent = CouncilAgent(GEMINI_API_KEY)
-    report_html = council_agent.run_proactive_analysis(
-        candidates_data=detailed_candidates_data,
-        category=focus_category,
-        deficit=deficit,
-        current_portfolio_str=current_weights_str,
-        current_holdings_str=current_holdings_str,
-        sector_distribution_str=sector_distribution_str,
-        user_name=user_name,
-        horizon=horizon
-    )
+        # 10. Send HTML-rapport og MP3-podcast til din indbakke
+        subject = f"[LLM Council] Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+        DeliveryAgent.send_email(
+            subject=subject, 
+            html_content=council_report_html, 
+            attachment_path=output_mp3 if podcast_compiled else None
+        )
 
-    # 7. Kør Podcastfy til MP3-kompileringen (Målrettet mod brugers navn)
-    output_mp3 = "llm_council_podcast.mp3"
-    podcast_compiled = False
-    
-    podcast_agent = PodcastAgent(GEMINI_API_KEY)
-    generated_file = podcast_agent.generate_podcast_audio(report_html, user_name)
-    
-    if generated_file and os.path.exists(generated_file):
-        import shutil
-        shutil.copyfile(generated_file, output_mp3)
-        podcast_compiled = True
+    except Exception as e:
+        error_msg = f"Kritisk systemfejl under kørslen:\n\n{traceback.format_exc()}"
+        print(error_msg, file=sys.stderr)
+        
+        error_html = f"""
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #FCA5A5; background-color: #FEF2F2; border-radius: 8px;">
+            <h2 style="color: #B91C1C; margin-top: 0; border-bottom: 2px solid #FCA5A5; padding-bottom: 10px;">🚨 Systemfejl i LLM Council</h2>
+            <pre style="background-color: #FFFFFF; border: 1px solid #FEE2E2; padding: 15px; border-radius: 5px; overflow-x: auto; color: #991B1B; font-size: 13px;">{error_msg}</pre>
+        </div>
+        """
+        DeliveryAgent.send_email("[System Error] LLM Council failed to run", error_html)
 
-    # 8. Send e-mailen
-    os.environ["EMAIL_RECEIVER"] = receiver_email
-    subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
-    
-    # Sætter modtager-adressen dynamisk inden afsendelse
-    global EMAIL_RECEIVER
-    EMAIL_RECEIVER = receiver_email
-    
-    DeliveryAgent.send_email(
-        subject=subject,
-        html_content=report_html,
-        attachment_path=output_mp3 if podcast_compiled else None
-    )
-    return True, "Your briefing and audio podcast have been sent to your email!"
 
-# =====================================================================
-#  SAAS START-KNAP
-# =====================================================================
-st.subheader("Step 4: Activate Your Personal Council")
-
-if st.button("🚀 Start My LLM Council & Send First Report"):
-    if not user_email or "@" not in user_email:
-        st.error("Please enter a valid email address.")
-    elif not st.session_state.holdings:
-        st.error("Please configure at least one active holding.")
-    elif not GEMINI_API_KEY:
-        st.error("SaaS master API key is missing on the server.")
-    else:
-        with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
-            success, msg = asyncio.run(process_instant_briefing(user_email, st.session_state.holdings, watchlist_list, custom_targets, user_name, investment_horizon))
-            if success:
-                st.success(f"Boom! {msg}")
-                st.balloons()
-            else:
-                st.error(f"Failed to generate briefing: {msg}")
+if __name__ == "__main__":
+    main()
