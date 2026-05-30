@@ -13,6 +13,19 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
+# --- Indsæt dette øverst i din app.py, efter imports ---
+# Den henter automatisk databasen fra dit GitHub arkiv live
+@st.cache_data
+def load_global_db():
+    url = "https://raw.githubusercontent.com/addoncreatives/shariamoneymaker/main/failsafe_db.json"
+    try:
+        response = requests.get(url, timeout=10)
+        return response.json()
+    except:
+        return STATIC_TICKER_MAP # Fallback til det indbyggede kartotek
+
+failsafe_db = load_global_db()
+
 # ---------------------------------------------------------------------
 #  SAFETY NET: Automatic installation of openpyxl if missing
 # ---------------------------------------------------------------------
