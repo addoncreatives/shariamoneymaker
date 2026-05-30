@@ -2,16 +2,37 @@ import streamlit as st
 import pandas as pd
 import openpyxl
 import io
-import re
+import os
+import json
+import asyncio
+import requests
+import datetime
+
+# Importér dine agenter direkte fra dit hovedscript!
+from llm_council import (
+    GoogleSheetsAgent,
+    ScreenerComplianceAgent,
+    CouncilAgent,
+    PodcastAgent,
+    DeliveryAgent,
+    PortfolioManagerAgent,
+    TARGET_PORTFOLIO,
+    GLOBAL_COMPLIANT_GROWTH_POOL,
+    DISPLAY_CATEGORIES,
+    TARGET_SUBSECTORS
+)
 
 # Sæt sidens opsætning med CNBC/Bloomberg tema
 st.set_page_config(
-    page_title="LLM Council - Onboarding Portal",
+    page_title="LLM Council - Premium Onboarding",
     page_icon="🗳️",
     layout="centered"
 )
 
-# Custom CSS til styling (Slate & Gold tema)
+# Hent dine master-nøgler fra Streamlit Secrets
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
+
 st.markdown("""
     <style>
     .main-title {
@@ -31,33 +52,27 @@ st.markdown("""
         letter-spacing: 2px;
         margin-bottom: 30px;
     }
-    .card {
-        background-color: #F8FAFC;
-        padding: 20px;
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-        margin-bottom: 20px;
-    }
     </style>
-""", unsafe_allow_limits=True)
+""", unsafe_allow_html=True) # Her er fejlen rettet fra limits til html!
 
 st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">SaaS Onboarding & Portfolio Generator</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
 
-st.markdown("""
-Welcome, Investor. This onboarding portal automatically generates the live-updating Google Sheets template 
-required to power your personal **LLM Council** automated investment assistant. 
-
-Fill in your active assets and watchlist below to generate your customized workbook.
-""")
+st.write("Welcome, Investor. This portal configures your personal, automated investment advisory department. "
+         "Once submitted, you will receive your **first investment dossier and audio podcast in your inbox within 60 seconds**.")
 
 # =====================================================================
-#  STEP 1: CURRENT HOLDINGS (INTERAKTIV DATA EDITOR)
+#  STEP 1: BRUGEROPLYSNINGER & EMAIL
 # =====================================================================
-st.subheader("Step 1: Your Active Portfolio")
-st.write("Add your current holdings. Ticker and Shares are the most critical pillars.")
+st.subheader("Step 1: Your Delivery Information")
+user_email = st.text_input("Enter your Email Address to receive the briefings:", placeholder="your.name@gmail.com")
 
-# Standard eksempler på dine egne start-aktiver, så nye brugere kan se formatet
+# =====================================================================
+#  STEP 2: AKTIER & BEHOLDNINGER
+# =====================================================================
+st.subheader("Step 2: Your Active Portfolio")
+st.write("Enter your active positions. This data calibrates the mathematical weightings of your council.")
+
 default_holdings = [
     {"Ticker": "NOVO-B.CO", "Position_Name": "Novo Nordisk B", "Shares": 10, "Aktivklasse": "Aktier", "Sektor": "Pharma"},
     {"Ticker": "MSAU.L", "Position_Name": "Saudi Arabia ETF", "Shares": 10, "Aktivklasse": "Aktier", "Sektor": "ETF - regional"},
@@ -68,7 +83,6 @@ default_holdings = [
 
 df_default = pd.DataFrame(default_holdings)
 
-# Den interaktive tabel, hvor brugeren kan tilføje/slette rækker direkte på skærmen
 edited_df = st.data_editor(
     df_default,
     num_rows="dynamic",
@@ -83,104 +97,50 @@ edited_df = st.data_editor(
 )
 
 # =====================================================================
-#  STEP 2: WATCHLIST / HULLER
+#  STEP 3: WATCHLIST / HULLER
 # =====================================================================
-st.subheader("Step 2: Your Watchlist")
+st.subheader("Step 3: Your Watchlist")
 watchlist_input = st.text_input(
-    "Enter the Tickers you want to monitor (comma-separated):",
+    "Enter the Tickers you want the council to monitor (comma-separated):",
     "TRMB, SAP, SPSK, AEM, NEM"
 )
 
-# Rens indtastede Watchlist-tickers
 watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
 
 # =====================================================================
-#  EXCEL-GENERATOR FUNKTION MED LIVE GOOGLE-FORMELER
+#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
 # =====================================================================
-def generate_excel_template(holdings_df, watchlist):
-    wb = openpyxl.Workbook()
+async def process_instant_briefing(receiver_email, holdings_df, watchlist):
+    """
+    Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
+    Udløser den øjeblikkelige første mail og danner podcasten via Podcastfy [3].
+    """
+    total_assets_count = len(holdings_df)
     
-    # 1. FANEN: Beholdninger
-    ws1 = wb.active
-    ws1.title = "Beholdninger"
+    # Beregn estimerede procenter (en simpel fordeling til den første rapport)
+    portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+    sector_distribution = {s: 0.0 for s in TARGET_SUBSECTORS}
     
-    headers1 = [
-        "Position", "Ticker", "Status", "Antal", "Kurs (DKK)", 
-        "Markedsværdi (DKK)", "Aktivklasse", "Drivkraft", "Sektor", 
-        "Region", "Porteføljevægt", "Rolle", "Kommentar / tese"
-    ]
-    ws1.append(headers1)
-    
-    for idx, row in enumerate(holdings_df.itertuples(), start=2):
-        ticker = str(row.Ticker).strip().upper()
-        name = str(row.Position_Name).strip()
-        shares = int(row.Shares)
-        aktivklasse = str(row.Aktivklasse)
-        sektor = str(row.Sektor)
+    for row in holdings_df.itertuples():
+        cat = row.Aktivklasse
+        portfolio_distribution[cat] += (100.0 / total_assets_count)
         
-        # Skriv værdier og indbyg de dynamiske GOOGLEFINANCE formler
-        ws1.cell(row=idx, column=1, value=name)
-        ws1.cell(row=idx, column=2, value=ticker)
-        ws1.cell(row=idx, column=3, value="Ejer")
-        ws1.cell(row=idx, column=4, value=shares)
-        
-        # LIVE FORMELER: Google Sheets henter selv prisen live og udregner markedsværdien
-        ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})') # Live pris
-        ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')         # Antal x Live pris
-        
-        ws1.cell(row=idx, column=7, value=aktivklasse)
-        ws1.cell(row=idx, column=8, value="")  # Drivkraft (valgfri)
-        ws1.cell(row=idx, column=9, value=sektor)
-        ws1.cell(row=idx, column=10, value="Global")
-        
-        # Vægt-formel: Værdien divideret med summen af hele kolonne F
-        ws1.cell(row=idx, column=11, value=f'=F{idx}/SUM(F$2:F$100)')
-        ws1.cell(row=idx, column=12, value="")
-        ws1.cell(row=idx, column=13, value="")
+        sec = row.Sektor
+        if sec in sector_distribution:
+            sector_distribution[sec] += (100.0 / total_assets_count)
 
-    # 2. FANEN: Opsummering
-    ws2 = wb.create_sheet(title="Opsummering")
+    # 2. Find fokus-kategori
+    pm = PortfolioManagerAgent(portfolio_distribution, TARGET_PORTFOLIO)
+    focus_category, deficit = pm.identify_underweighted_focus()
     
-    # Skriv headers så de passer til dit arks struktur (Watchlist ligger i Kolonne N)
-    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
-    ws2.append(headers2)
+    # 3. Proaktiv søgning
+    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+    combined_candidates = list(set(watchlist + growth_pool))
     
-    # Indsæt Watchlist-tickers i Kolonne N (Kolonne 14)
-    for idx, ticker in enumerate(watchlist, start=2):
-        ws2.cell(row=idx, column=14, value=ticker)
-
-    # Gem projektmappen i en hukommelses-buffer
-    excel_data = io.BytesIO()
-    wb.save(excel_data)
-    excel_data.seek(0)
-    return excel_data
-
-# =====================================================================
-#  GENERER & DOWNLOAD KNAP
-# =====================================================================
-st.subheader("Step 3: Generate and Deploy")
-
-if st.button("Generate My Live Sheet Template"):
-    if edited_df.empty:
-        st.error("Please add at least one holding before generating.")
-    else:
-        with st.spinner("Generating your live Excel workbook..."):
-            excel_file = generate_excel_template(edited_df, watchlist_list)
-            
-            st.success("Success! Your live portfolio spreadsheet has been generated.")
-            
-            # Download knap til brugeren
-            st.download_button(
-                label="📥 Download Onboarding_Portfolio.xlsx",
-                data=excel_file,
-                file_name="Onboarding_Portfolio.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-            st.markdown("""
-            ### 🚀 Next Steps to start your LLM Council:
-            1. **Upload to Google Drive:** Upload the downloaded `Onboarding_Portfolio.xlsx` to your Google Drive and open it as a Google Sheet.
-            2. **Share the Sheet:** Click **Share** (Del), and set permissions to **"Anyone with the link can view"** (Alle med linket kan se).
-            3. **Save your Sheet ID:** Copy your Sheet ID from the URL (the string between `/d/` and `/edit`). Save it as a GitHub Secret named `GOOGLE_SHEET_ID`.
-            4. **Set up Secrets:** Add your `GEMINI_API_KEY`, `EMAIL_PASSWORD` to your GitHub secrets, and run the action!
-            """)
+    # 4. Kør screening
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+    approved_stocks = screener.run_screening(focus_category)
+    target_candidates = approved_stocks[:10]
+    
+    if not target_candidates:
+        retur
