@@ -51,7 +51,6 @@ DISPLAY_CATEGORIES = {
     "Kontanter/Private": "Cash / Private Sector"
 }
 
-# Lydløs tovejs-oversætter, som oversætter de engelske UI-værdier til dit Google Sheet
 UI_TO_DB_MAP = {
     "Equities": "Aktier",
     "Sukuk": "Sukuk",
@@ -66,42 +65,63 @@ DB_TO_UI_MAP = {
     "Kontanter/Private": "Cash/Private"
 }
 
+# UDVIDET GLOBALE INVESTERINGS-KATEGORIER (På engelsk for bredere udsyn)
 TARGET_SUBSECTORS = [
-    "Pharma", "Medico", "Vind", "Elektrificering", "Infrastruktur", 
-    "Byggeri", "Materialer", "Industri", "Halvleder", "Mining royalty", 
-    "Energi", "ETF - global", "ETF - regional", "Sukuk", "Kontanter", 
-    "Private investeringer", "Landbrug / gødning", "Consumer staples / dagligvarer", 
-    "Software / platform", "Industrielle metaller / kobber", "Logistik"
+    "Pharmaceuticals & Biotech",
+    "Medical Devices & MedTech",
+    "Clean Energy & Wind",
+    "Smart Grid & Electrification",
+    "Global Infrastructure",
+    "Construction & Building Materials",
+    "Chemicals & Advanced Materials",
+    "Industrial Machinery & Automation",
+    "Semiconductors & Hardware",
+    "Mining & Royalty Streams",
+    "Traditional Energy & Utilities",
+    "Global Equity ETFs",
+    "Regional & Thematic ETFs",
+    "Sukuk & Fixed Income",
+    "Cash & Liquidity Reserves",
+    "Private Equity & Venture Capital",
+    "Agriculture & Food Security",
+    "Consumer Defensive & Staples",
+    "Enterprise Software & SaaS",
+    "Industrial Metals & Copper",
+    "Logistics & Global Shipping",
+    "Artificial Intelligence & Cloud Computing",
+    "Cybersecurity & Digital Defense",
+    "E-Commerce & Digital Retail",
+    "Water Infrastructure & Desalination"
 ]
 
-# DET STATISKE LYNHURTIGE KARTOTEK (Failsafe for at undgå IP-blokeringer fra Yahoo)
+# DET STATISKE LYNHURTIGE KARTOTEK (Opdateret med engelske sub-sektorer)
 STATIC_TICKER_MAP = {
-    "NOVO-B.CO": ("Aktier", "Pharma"),
-    "NOVO-B": ("Aktier", "Pharma"),
-    "MSFT": ("Aktier", "Software / platform"),
-    "AAPL": ("Aktier", "Hardware"),
-    "SAP": ("Aktier", "Software / platform"),
-    "IFX.DE": ("Aktier", "Halvleder"),
-    "ASML": ("Aktier", "Halvleder"),
-    "NVDA": ("Aktier", "Halvleder"),
-    "VWS.CO": ("Aktier", "Vind"),
-    "NKT.CO": ("Aktier", "Elektrificering"),
-    "FLS.CO": ("Aktier", "Industri"),
-    "ROCK-B.CO": ("Aktier", "Byggeri"),
-    "ORK.OL": ("Aktier", "Consumer staples / dagligvarer"),
-    "WPM": ("Råvarer", "Mining royalty"),
-    "NEM": ("Råvarer", "Industrielle metaller / kobber"),
-    "AEM": ("Råvarer", "Industrielle metaller / kobber"),
-    "RGLD": ("Råvarer", "Mining royalty"),
-    "SPSK": ("Sukuk", "Sukuk"),
-    "SKUK": ("Sukuk", "Sukuk"),
-    "MSAU.L": ("Aktier", "ETF - regional"),
-    "IGDA.L": ("Aktier", "ETF - global"),
-    "HLAL": ("Aktier", "ETF - regional"),
-    "UMMA": ("Aktier", "ETF - global"),
-    "ISWD.L": ("Aktier", "ETF - global"),
-    "ISUS.L": ("Aktier", "ETF - regional"),
-    "HIWS.L": ("Aktier", "ETF - global")
+    "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
+    "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
+    "MSFT": ("Aktier", "Enterprise Software & SaaS"),
+    "AAPL": ("Aktier", "Semiconductors & Hardware"),
+    "SAP": ("Aktier", "Enterprise Software & SaaS"),
+    "IFX.DE": ("Aktier", "Semiconductors & Hardware"),
+    "ASML": ("Aktier", "Semiconductors & Hardware"),
+    "NVDA": ("Aktier", "Semiconductors & Hardware"),
+    "VWS.CO": ("Aktier", "Clean Energy & Wind"),
+    "NKT.CO": ("Aktier", "Smart Grid & Electrification"),
+    "FLS.CO": ("Aktier", "Industrial Machinery & Automation"),
+    "ROCK-B.CO": ("Aktier", "Construction & Building Materials"),
+    "ORK.OL": ("Aktier", "Consumer Defensive & Staples"),
+    "WPM": ("Råvarer", "Mining & Royalty Streams"),
+    "NEM": ("Råvarer", "Industrial Metals & Copper"),
+    "AEM": ("Råvarer", "Industrial Metals & Copper"),
+    "RGLD": ("Råvarer", "Mining & Royalty Streams"),
+    "SPSK": ("Sukuk", "Sukuk & Fixed Income"),
+    "SKUK": ("Sukuk", "Sukuk & Fixed Income"),
+    "MSAU.L": ("Aktier", "Regional & Thematic ETFs"),
+    "IGDA.L": ("Aktier", "Global Equity ETFs"),
+    "HLAL": ("Aktier", "Regional & Thematic ETFs"),
+    "UMMA": ("Aktier", "Global Equity ETFs"),
+    "ISWD.L": ("Aktier", "Global Equity ETFs"),
+    "ISUS.L": ("Aktier", "Regional & Thematic ETFs"),
+    "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
 # GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
@@ -144,7 +164,7 @@ if EMAIL_PASSWORD:
 
 
 # =====================================================================
-#  STÆRK TEKST-NORMALISERING (FJERNER STAVE- OG APOSTROF-FEJL)
+#  STÆRK TEKST-NORMALISERING
 # =====================================================================
 def normalize_string(s: str) -> str:
     if not s or pd.isna(s):
@@ -158,7 +178,7 @@ def normalize_string(s: str) -> str:
 
 
 # =====================================================================
-#  LIVE SEARCH-TO-TICKER MOTOR (MED AUTOFULLENDELSE & DYNAMISKE MULTI-FORSLAG)
+#  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
 # =====================================================================
 def search_tickers_by_name_multi(query: str) -> list:
     if not query or pd.isna(query) or len(str(query).strip()) < 2:
@@ -288,13 +308,13 @@ class GoogleSheetsAgent:
 
                 if "sukuk" in combined_text:
                     category = "Sukuk"
-                    subsector = "Sukuk"
+                    subsector = "Sukuk & Fixed Income"
                 elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
                     category = "Råvarer"
-                    subsector = "Commodities"
+                    subsector = "Mining & Royalty Streams"
                 elif any(word in combined_text for word in ["kontant", "cash", "private"]):
                     category = "Kontanter/Private"
-                    subsector = "Cash"
+                    subsector = "Cash & Liquidity Reserves"
                 elif "aktie" in combined_text:
                     category = "Aktier"
 
@@ -406,7 +426,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (AUTOMATISK DETEKTERING)
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK SØGNING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -449,23 +469,55 @@ class ScreenerComplianceAgent:
         for k, v in STATIC_TICKER_MAP.items():
             if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
                 if v[0] == "Sukuk" and self.target_category == "Kontanter/Private":
-                    return "Kontanter/Private", "Sukuk"
+                    return "Kontanter/Private", "Sukuk & Fixed Income"
                 return v[0], v[1]
 
         # 2. Hvis ikke i kartoteket, kør dynamisk mapping baseret på yfinance data
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
             if self.target_category == "Kontanter/Private":
-                return "Kontanter/Private", "Sukuk"
-            return "Sukuk", "Sukuk"
+                return "Kontanter/Private", "Sukuk & Fixed Income"
+            return "Sukuk", "Sukuk & Fixed Income"
             
         if sym in ["WPM", "FNV", "RGLD"]:
-            return "Råvarer", "Mining royalty"
+            return "Råvarer", "Mining & Royalty Streams"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
-            return "Råvarer", "Industrielle metaller / kobber"
+            return "Råvarer", "Industrial Metals & Copper"
 
         if "cash" in sym or "money market" in sec_l:
-            return "Kontanter/Private", "Cash Equivalents"
+            return "Kontanter/Private", "Cash & Liquidity Reserves"
+
+        # Dynamisk kobling til de nye 25 overordnede kategorier
+        if "pharmaceutical" in ind_l or "biotechnology" in ind_l:
+            return "Aktier", "Pharmaceuticals & Biotech"
+        if "medical" in ind_l or "healthcare" in sec_l:
+            return "Aktier", "Medical Devices & MedTech"
+        if "wind" in ind_l or "renewable" in ind_l or "solar" in ind_l:
+            return "Aktier", "Clean Energy & Wind"
+        if "cable" in ind_l or "electrical" in ind_l:
+            return "Aktier", "Smart Grid & Electrification"
+        if "semiconductor" in ind_l or "semiconductor" in sec_l:
+            return "Aktier", "Semiconductors & Hardware"
+        if "software" in ind_l or "software" in sec_l or "technology" in sec_l:
+            return "Aktier", "Enterprise Software & SaaS"
+        if "building" in ind_l or "construction" in ind_l:
+            return "Aktier", "Construction & Building Materials"
+        if "chemicals" in ind_l:
+            return "Aktier", "Chemicals & Advanced Materials"
+        if "machinery" in ind_l or "industrials" in sec_l:
+            return "Aktier", "Industrial Machinery & Automation"
+        if "infrastructure" in ind_l or "utilities" in sec_l:
+            return "Aktier", "Global Infrastructure"
+        if "staples" in sec_l or "packaged foods" in ind_l or "consumer defensive" in sec_l:
+            return "Aktier", "Consumer Defensive & Staples"
+        if "fertilizer" in ind_l or "agriculture" in ind_l:
+            return "Aktier", "Agriculture & Food Security"
+        if "logistics" in ind_l or "shipping" in ind_l:
+            return "Aktier", "Logistics & Global Shipping"
+        if "internet" in ind_l or "e-commerce" in ind_l:
+            return "Aktier", "E-Commerce & Digital Retail"
+        if "water" in ind_l or "environmental" in ind_l:
+            return "Aktier", "Water Infrastructure & Desalination"
 
         # Dynamisk fallback
         dynamic_subsector = industry if (industry and industry != "Other") else sector
@@ -484,7 +536,7 @@ class ScreenerComplianceAgent:
                     "sector": "Manual Asset",
                     "industry": "Manual Asset",
                     "category": "Kontanter/Private",
-                    "subsector": "Cash",
+                    "subsector": "Cash & Liquidity Reserves",
                     "is_etf": False
                 }
 
@@ -821,11 +873,10 @@ st.markdown("""
 # Initialize session state for active holdings if not present
 if "holdings" not in st.session_state:
     st.session_state.holdings = [
-        {"Company Name": "Novo Nordisk", "Ticker": "NOVO-B.CO", "Shares": 10, "Category": "Aktier", "Sector": "Pharma"},
-        {"Company Name": "Saudi Arabia ETF", "Ticker": "MSAU.L", "Shares": 10, "Category": "Aktier", "Sector": "ETF - regional"},
-        {"Company Name": "Invesco Islamic Global", "Ticker": "IGDA.L", "Shares": 23, "Category": "Aktier", "Sector": "ETF - global"},
-        {"Company Name": "iShares USD Sukuk", "Ticker": "SKUK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk"},
-        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining royalty"}
+        {"Company Name": "Apple Inc.", "Ticker": "AAPL", "Shares": 10, "Category": "Aktier", "Sector": "Semiconductors & Hardware"},
+        {"Company Name": "Microsoft", "Ticker": "MSFT", "Shares": 5, "Category": "Aktier", "Sector": "Enterprise Software & SaaS"},
+        {"Company Name": "SP Funds Sukuk ETF", "Ticker": "SPSK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk & Fixed Income"},
+        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining & Royalty Streams"}
     ]
 if "targets" not in st.session_state:
     st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
@@ -938,6 +989,7 @@ with col_n1:
     user_name_input = st.text_input("Enter your Name:", value=st.session_state.user_name)
     st.session_state.user_name = user_name_input
 with col_n2:
+    # Hvis brugeren er logget ind via sidemenuen, låser vi mailen fast her
     user_email_input = st.text_input("Enter your Email Address to receive briefings:", value=login_email if login_email else "", placeholder="your.name@gmail.com")
 
 st.subheader("Step 1.2: Your Investment Horizon & Delivery Settings")
@@ -952,7 +1004,6 @@ with col_s1:
         index=horizon_index
     )
 with col_s2:
-    # Den nye ugentlige/daglige frekvens-vælger [3]
     freq_options = ["Daily", "Weekly", "Bi-weekly", "Monthly"]
     freq_index = freq_options.index(st.session_state.frequency) if st.session_state.frequency in freq_options else 1
     
@@ -996,7 +1047,7 @@ is_new_investor = st.checkbox("I am a completely new investor (starting from scr
 selected_new_sectors = []
 if is_new_investor:
     st.write("Since you are starting from scratch, select the sectors/themes you want to build exposure to:")
-    selected_new_sectors = st.multiselect("Select Target Sectors:", options=TARGET_SUBSECTORS, default=["Pharma", "Vind", "Halvleder"])
+    selected_new_sectors = st.multiselect("Select Target Sectors:", options=TARGET_SUBSECTORS, default=["Pharmaceuticals & Biotech", "Clean Energy & Wind", "Semiconductors & Hardware"])
 
 # =====================================================================
 #  STEP 2: ENKELT, SØG-OG-TILFØJ ENGINE (KUN HVIS IKKE NY INVESTOR)
@@ -1027,7 +1078,7 @@ if not is_new_investor:
                     "Company Name": manual_name,
                     "Ticker": virtual_ticker,
                     "Shares": 1,
-                    "Category": UI_TO_DB_MAP.get(manual_category, "Kontanter/Private"), # Gemmer internt i dansk format [3]
+                    "Category": UI_TO_DB_MAP.get(manual_category, "Kontanter/Private"),
                     "Sector": manual_sector,
                     "manual_value": manual_value
                 })
@@ -1035,7 +1086,8 @@ if not is_new_investor:
                 time.sleep(1)
                 st.rerun()
 else:
-    search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'adiddads', 'Novo Nordisk', 'iShares Sukuk'):", "")
+    # Sletet eksempler til søgning
+    search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'Adidas', 'Novo Nordisk', 'iShares Sukuk'):", "")
 
     if search_query:
         search_results = search_tickers_by_name_multi(search_query)
@@ -1058,7 +1110,6 @@ else:
                 temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
                 cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
                 
-                # Oversat direkte til engelsk for kunden [3]
                 display_cat = DB_TO_UI_MAP.get(cat, cat)
                 
                 st.markdown(f"""
@@ -1102,8 +1153,6 @@ st.write("---")
 st.write("### Your Current Portfolio")
 if st.session_state.holdings:
     holdings_df = pd.DataFrame(st.session_state.holdings)
-    
-    # Skift kolonnenavn til engelsk
     holdings_df['Category_Display'] = holdings_df['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
     
     edited_holdings = st.data_editor(
@@ -1121,7 +1170,6 @@ if st.session_state.holdings:
         key="holdings_editor"
     )
     
-    # Gemmer ændringer i Google Sheet
     if not edited_holdings.equals(holdings_df):
         st.session_state.holdings = edited_holdings.to_dict(orient="records")
         st.rerun()
@@ -1136,7 +1184,7 @@ if st.session_state.holdings:
                     targets=st.session_state.targets,
                     horizon=st.session_state.horizon,
                     name=st.session_state.user_name,
-                    frequency=st.session_state.frequency # Gemmer nu også ugentlig frekvens [3]
+                    frequency=st.session_state.frequency
                 )
                 if status == "success":
                     st.success("Successfully saved your profile! Your nightly council runs are now synchronized.")
@@ -1218,11 +1266,9 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         
     print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
-    # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
-    # 4. Kør screening
     screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
     approved_stocks = screener.run_screening(focus_category)
     target_candidates = approved_stocks[:10]
@@ -1230,7 +1276,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
     if not target_candidates:
         return False, "No compliant assets could be found in your focused category."
 
-    # 5. Indhent detaljerede yfinance metrics
     detailed_candidates_data = []
     for stock in target_candidates:
         symbol = stock["symbol"]
@@ -1258,7 +1303,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         except Exception:
             detailed_candidates_data.append(stock)
 
-    # 6. Kør Gemini 3.5 Flash til nyhedsbrevet (inkl. personlige detaljer)
     current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
     current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
     sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
@@ -1275,7 +1319,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         horizon=horizon
     )
 
-    # 7. Kør Podcastfy til MP3-kompileringen (Målrettet mod brugers navn)
     output_mp3 = "llm_council_podcast.mp3"
     podcast_compiled = False
     
@@ -1287,7 +1330,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         shutil.copyfile(generated_file, output_mp3)
         podcast_compiled = True
 
-    # 8. Send e-mailen
     os.environ["EMAIL_RECEIVER"] = receiver_email
     subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
     
@@ -1324,7 +1366,7 @@ if st.button("🚀 Start My LLM Council & Send First Report"):
                 watchlist_list, 
                 st.session_state.targets, 
                 user_name_input, 
-                investment_horizon,
+                st.session_state.horizon,
                 is_new_investor,
                 selected_new_sectors
             ))
