@@ -147,17 +147,12 @@ def normalize_string(s: str) -> str:
 #  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
 # =====================================================================
 def search_ticker_by_name(query: str) -> str:
-    """
-    Søger automatisk på Yahoo Finances live-API efter den korrekte 
-    ticker-kode baseret på et selskabsnavn eller fritext [3].
-    """
     if not query or pd.isna(query):
         return None
     
     query_clean = str(query).strip()
     
-    # Hvis brugeren allerede har indtastet en gyldig ticker-kode (fx MSFT eller NOVO-B.CO)
-    # behøver vi ikke at søge efter den.
+    # Hvis det allerede ligner en ticker
     if re.match(r'^[A-Z0-9\.\-]+$', query_clean) and len(query_clean) < 10 and "." in query_clean:
         return query_clean
 
@@ -171,7 +166,6 @@ def search_ticker_by_name(query: str) -> str:
             data = response.json()
             quotes = data.get("quotes", [])
             if quotes:
-                # Retunér den første og mest relevante ticker fra listen
                 return quotes[0].get("symbol")
     except Exception as e:
         print(f"Søgning fejlede for '{query_clean}': {str(e)}")
@@ -397,7 +391,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (AUTOMATISK DETEKTERING)
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK MAPPING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -435,7 +429,7 @@ class ScreenerComplianceAgent:
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
-        # 1. Tjek altid det lynhurtige statiske kartotek først (omgår yfinance fejl!)
+        # 1. Tjek altid det lynhurtige statiske kartotek først
         lookup_sym = sym.split('.')[0]
         for k, v in STATIC_TICKER_MAP.items():
             if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
@@ -458,7 +452,7 @@ class ScreenerComplianceAgent:
         if "cash" in sym or "money market" in sec_l:
             return "Kontanter/Private", "Cash Equivalents"
 
-        # Dynamisk fallback for øvrige selskaber og aktie-ETF'er
+        # Dynamisk fallback: Selskabets reelle industri fra yfinance bruges direkte som delsektor
         dynamic_subsector = industry if (industry and industry != "Other") else sector
         return "Aktier", dynamic_subsector
 
@@ -561,14 +555,16 @@ class CouncilAgent:
         self.api_key = api_key
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={self.api_key}"
 
-    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str, sector_distribution_str: str) -> str:
+    def run_proactive_analysis(self, candidates_data: list, category: str, deficit: float, current_portfolio_str: str, current_holdings_str: str, sector_distribution_str: str, user_name: str, horizon: str) -> str:
         candidates_json = json.dumps(candidates_data, indent=2, ensure_ascii=False)
         english_category = DISPLAY_CATEGORIES.get(category, category)
         
         prompt = f"""
-        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, Wazir [3].
+        You are an elite financial advisory council ("LLM Council") presenting a strategic investment briefing to your highly valued VIP client, {user_name} [3].
         
         THE INVESTOR PROFILE & MODEL:
+        - Investor's Name: {user_name} [3]
+        - Investment Horizon: {horizon} (This is CRITICAL. Align all advice, timelines, risk-tolerances, and recommendations precisely with this specific time horizon!) [3]
         - Overarching Strategic Model: Customize based on Wazir's targets [3].
         - Under Evaluation Tonight: {english_category} (Current Deficit: {deficit:.2f}%) [3].
         - Current Portfolio Allocations (Target vs Actual): {current_portfolio_str} [3].
@@ -601,17 +597,18 @@ class CouncilAgent:
         REPORT OUTLINE (ENGLISH):
         
         <h1>🗳️ LLM Council Strategic Briefing</h1>
-        <p><strong>Prepared exclusively for:</strong> Wazir</p>
+        <p><strong>Prepared exclusively for:</strong> {user_name}</p>
+        <p><strong>Investment Horizon:</strong> {horizon}</p>
         <p><strong>Focus tonight:</strong> {english_category} (Deficit: {deficit:.2f}%)</p>
         
         <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;">
         
         <h2>SECTION 1 — PORTFOLIO DIAGNOSTIC & INDIRECT EXPOSURES</h2>
-        Analyze Wazir's current holdings and how they map to their strategic sub-sectors [3]. Do existing assets already provide satisfactory indirect exposure to the focus theme [3]? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
+        Analyze {user_name}'s current holdings and how they map to their strategic sub-sectors [3]. Do existing assets already provide satisfactory indirect exposure to the focus theme [3]? Discuss Saxo Bank limitations and Sharia compliance filters as boundaries, and explain how they can diversify across different underlying economic drivers if direct options are limited.
         
         <h2>SECTION 2 — DEEP-DIVE CONSULTANT ANALYSIS (UP TO 10 SCREENED CANDIDATES)</h2>
         For each candidate, write an elegant card covering:
-        1. <strong>Investment Case</strong> (How it balances Wazir's current assets).
+        1. <strong>Investment Case</strong> (How it balances {user_name}'s current assets, keeping their {horizon} horizon in mind).
         2. <strong>Financial Highlights</strong> (Omsætningsvækst, marginer, cash flow based on live data).
         3. <strong>Future Outlook & Pipeline</strong>.
         4. <strong>Risk Assessment</strong>.
@@ -622,7 +619,7 @@ class CouncilAgent:
         Select the top 3 assets. Moderate a high-stakes, dramatic debate among the 5 financial advisers using the styled left-bordered divs [3]. Show conflict, arguments on valuation, capex, and macro timing.
         
         <h2>SECTION 4 — THE CHAIRMAN'S DEKRET (RECOMMENDATION)</h2>
-        The Chairman's final clear directive enclosed in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for Wazir's Saxo Investor account over the next 7 days [3].
+        The Chairman's final clear directive enclosed in the gold callout box [3]. Conclude with a highly precise, step-by-step action plan for {user_name}'s Saxo Investor account over the next 7 days [3].
         
         Return ONLY the raw HTML code. Do NOT enclose in markdown tags like "```html".
         """
@@ -652,7 +649,7 @@ class PodcastAgent:
             os.environ["GEMINI_API_KEY"] = self.api_key
             os.environ["GOOGLE_API_KEY"] = self.api_key
 
-    def generate_podcast_audio(self, report_html: str) -> str:
+    def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
         custom_config = {
@@ -665,16 +662,16 @@ class PodcastAgent:
             "output_language": "English",
             "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk"],
             "user_instructions": (
-                "Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
-                "The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, Wazir [3]. "
-                "Then, they introduce and interview our 5 resident advisers: "
-                "Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
-                "First-Principles (the logical mathematician using raw numbers), "
-                "Expansionist (the highly bullish growth hunter wanting to deploy capital), "
-                "Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
-                "and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
-                "The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
-                "giving Wazir a highly clear, actionable next step for his Saxo account."
+                f"Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
+                f"The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, {user_name} [3]. "
+                f"Then, they introduce and interview our 5 resident advisers: "
+                f"Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
+                f"First-Principles (the logical mathematician using raw numbers), "
+                f"Expansionist (the highly bullish growth hunter wanting to deploy capital), "
+                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
+                f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging) [3]. "
+                f"The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
+                f"giving {user_name} a highly clear, actionable next step for his Saxo account."
             )
         }
         
@@ -766,10 +763,26 @@ st.write("Welcome, Investor. This portal configures your personal, automated inv
          "Once submitted, you will receive your **first investment dossier and audio podcast in your inbox within 60 seconds**.")
 
 # =====================================================================
-#  STEP 1: BRUGEROPLYSNINGER & DYNAMISKE MÅLVÆGTE
+#  STEP 1: BRUGEROPLYSNINGER, NAVN & DYNAMISKE MÅLVÆGTE
 # =====================================================================
-st.subheader("Step 1: Your Delivery Information")
-user_email = st.text_input("Enter your Email Address to receive the briefings:", placeholder="your.name@gmail.com")
+st.subheader("Step 1: Your Personal Profile")
+col_n1, col_n2 = st.columns(2)
+with col_n1:
+    user_name = st.text_input("Enter your Name:", value="Wazir")
+with col_n2:
+    user_email = st.text_input("Enter your Email Address to receive the briefings:", placeholder="your.name@gmail.com")
+
+st.subheader("Step 1.2: Your Investment Horizon")
+investment_horizon = st.selectbox(
+    "Select your Investment Horizon:", 
+    [
+        "Short-term (1-3 years - Conservative)", 
+        "Medium-term (3-7 years - Balanced)", 
+        "Long-term (7-15 years - Growth)", 
+        "Ultra Long-term (15+ years - Multi-generational/Retirement)"
+    ],
+    index=2
+)
 
 st.subheader("Step 1.5: Customize Your Target Allocations")
 st.write("Define your target weighting for the major asset classes. The system will automatically normalize them to sum to 100%.")
@@ -797,7 +810,7 @@ else:
     custom_targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 
 # =====================================================================
-#  STEP 2: ENKELT, FULDAUTOMATISERET HOLDINGS ENTRANCE (BRUG SELSKABSNAVNE!)
+#  STEP 2: ENKELT, FULDAUTOMATISERET HOLDINGS ENTRANCE (MED .ITERROWS)
 # =====================================================================
 st.subheader("Step 2: Your Active Portfolio")
 st.write("Enter your active positions. Enter ONLY Company Name (e.g. 'Novo Nordisk') and Shares. "
@@ -841,10 +854,10 @@ watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.str
 # =====================================================================
 #  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
 # =====================================================================
-async def process_instant_briefing(receiver_email, holdings_df, watchlist, target_allocations):
+async def process_instant_briefing(receiver_email, holdings_df, watchlist, target_allocations, user_name, horizon):
     """
     Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
-    Søger automatisk efter selskabsnavne og finder den korrekte ticker live [3]!
+    Udlæser rækkerne via robust .iterrows() for at undgå navne-mangler-fejl på sky-serveren [3]!
     """
     total_assets_count = len(holdings_df)
     
@@ -854,10 +867,15 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
     # Midlertidig screener til at kortlægge live sektorer
     screener = ScreenerComplianceAgent([], target_category="Aktier")
     
-    # Looper over indtastede positioner og detekterer kategorier/sektorer helt automatisk live!
-    for row in holdings_df.itertuples():
-        raw_input = getattr(row, "Company_Name_or_Ticker", "")
-        shares = int(row.Shares)
+    # Looper over indtastede positioner med .iterrows() (100% robust mod mellemrum og parenteser!) [3]
+    for idx, row in holdings_df.iterrows():
+        raw_input = row.get("Company Name or Ticker")
+        shares = row.get("Shares")
+        
+        if pd.isna(raw_input) or str(raw_input).strip() == "":
+            continue
+            
+        shares = int(shares) if (shares and not pd.isna(shares)) else 1
         
         # 1. LIVE SEARCH-TO-TICKER: Konverter selskabsnavn til rigtig Yahoo-ticker! [3]
         symbol = search_ticker_by_name(raw_input)
@@ -868,8 +886,8 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
         print(f"Konverteret '{raw_input}' -> Ticker: '{symbol}'")
         
         # Hent valgfri overstyringer
-        cat_override = getattr(row, "Category_Override_Optional", None)
-        sec_override = getattr(row, "Sector_Override_Optional", None)
+        cat_override = row.get("Category Override (Optional)")
+        sec_override = row.get("Sector Override (Optional)")
         
         category = cat_override if (cat_override and not pd.isna(cat_override)) else None
         subsector = sec_override if (sec_override and not pd.isna(sec_override)) else None
@@ -942,17 +960,16 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
         except Exception:
             detailed_candidates_data.append(stock)
 
-    # 6. Kør Gemini 3.5 Flash til nyhedsbrevet
+    # 6. Kør Gemini 3.5 Flash til nyhedsbrevet (inkl. personlige detaljer)
     current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
-    # Gemmer tickers i listen til Gemini
     current_holdings = []
-    for r in holdings_df.itertuples():
-        raw_name = getattr(r, "Company_Name_or_Ticker", "")
+    for idx, r in holdings_df.iterrows():
+        raw_name = r.get("Company Name or Ticker")
         resolved_sym = search_ticker_by_name(raw_name)
         current_holdings.append({
             "ticker": resolved_sym if resolved_sym else raw_name,
             "name": raw_name,
-            "asset_class": r.Category_Override_Optional if (hasattr(r, 'Category_Override_Optional') and r.Category_Override_Optional) else "Aktier"
+            "asset_class": r.get("Category Override (Optional)") if r.get("Category Override (Optional)") else "Aktier"
         })
     current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
     sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
@@ -964,15 +981,17 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
         deficit=deficit,
         current_portfolio_str=current_weights_str,
         current_holdings_str=current_holdings_str,
-        sector_distribution_str=sector_distribution_str
+        sector_distribution_str=sector_distribution_str,
+        user_name=user_name,
+        horizon=horizon
     )
 
-    # 7. Kør Podcastfy til MP3-kompileringen
+    # 7. Kør Podcastfy til MP3-kompileringen (Målrettet mod brugers navn)
     output_mp3 = "llm_council_podcast.mp3"
     podcast_compiled = False
     
     podcast_agent = PodcastAgent(GEMINI_API_KEY)
-    generated_file = podcast_agent.generate_podcast_audio(report_html)
+    generated_file = podcast_agent.generate_podcast_audio(report_html, user_name)
     
     if generated_file and os.path.exists(generated_file):
         import shutil
@@ -984,10 +1003,10 @@ async def process_instant_briefing(receiver_email, holdings_df, watchlist, targe
     subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
     
     # Sætter modtager-adressen dynamisk inden afsendelse
-    import llm_council
-    llm_council.EMAIL_RECEIVER = receiver_email
+    global EMAIL_RECEIVER
+    EMAIL_RECEIVER = receiver_email
     
-    llm_council.DeliveryAgent.send_email(
+    DeliveryAgent.send_email(
         subject=subject,
         html_content=report_html,
         attachment_path=output_mp3 if podcast_compiled else None
@@ -1008,7 +1027,7 @@ if st.button("🚀 Start My LLM Council & Send First Report"):
         st.error("SaaS master API key is missing on the server.")
     else:
         with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
-            success, msg = asyncio.run(process_instant_briefing(user_email, edited_df, watchlist_list, custom_targets))
+            success, msg = asyncio.run(process_instant_briefing(user_email, edited_df, watchlist_list, custom_targets, user_name, investment_horizon))
             if success:
                 st.success(f"Boom! {msg}")
                 st.balloons()
