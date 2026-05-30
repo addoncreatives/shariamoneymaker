@@ -7,6 +7,7 @@ import json
 import datetime
 import traceback
 import smtplib
+import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -22,6 +23,17 @@ except ImportError:
     print("Sikkerhedsnet: openpyxl mangler. Installerer automatisk...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
     import openpyxl
+
+# ---------------------------------------------------------------------
+#  SIKKERHEDSNET: Automatisk installation af edge-tts, hvis det mangler
+# ---------------------------------------------------------------------
+try:
+    import edge_tts
+except ImportError:
+    import subprocess
+    print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
+    subprocess.call([sys.executable, "-m", "pip", "install", "edge-tts"])
+    import edge_tts
 
 import yfinance as yf
 import requests
@@ -69,7 +81,7 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
         "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
     ],
     "Kontanter/Private": [
-        "SPSK"
+        "SPSK", "SKUK"  # Sukuk-fonde fungerer som godkendte, likvide proxies for kontanter
     ]
 }
 
@@ -108,7 +120,7 @@ def normalize_string(s: str) -> str:
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT (OPDATERET MED TRE-SPORET SØGNING)
+#  GOOGLE SHEETS / EXCEL AGENT
 # =====================================================================
 class GoogleSheetsAgent:
     def __init__(self, sheet_id: str):
@@ -182,7 +194,6 @@ class GoogleSheetsAgent:
             df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
             df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
 
-            # Sikkerhedsnet: Beregner procenterne direkte ud fra Markedsværdi (DKK)
             total_mv = df['Cleaned_MV'].sum()
             total_weight = df['Cleaned_Weight'].sum()
 
@@ -201,7 +212,6 @@ class GoogleSheetsAgent:
                 if row_weight <= 0.0:
                     continue
 
-                # Samler tekstværdier på tværs af de tre definerende kolonner
                 drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
                 aktivklasse_val = normalize_string(row.get(aktivklasse_col, ""))
                 sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
@@ -286,14 +296,9 @@ class GoogleSheetsAgent:
 
 
 # =====================================================================
-#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION - FRISKE VINKLER)
+#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION)
 # =====================================================================
 class PortfolioManagerAgent:
-    """
-    Identificerer alle underallokerede kategorier og roterer fokusset
-    systematisk fra dag til dag baseret på årets kalenderdag.
-    Dette sikrer konstant skiftende og friske vinkler i din indbakke [3].
-    """
     def __init__(self, current: dict, target: dict):
         self.current = current
         self.target = target
@@ -303,17 +308,13 @@ class PortfolioManagerAgent:
         for category, target_val in self.target.items():
             curr_val = self.current.get(category, 0.0)
             deficit = target_val - curr_val
-            # Vi fokuserer kun på reelle gab (Aktier med 77.7% udelukkes automatisk)
             if deficit > 0.0:
                 underweight_candidates.append((category, deficit))
         
         if not underweight_candidates:
             return list(self.target.keys())[0], 0.0
 
-        # Sorter alfabetisk for stabil rotationsrækkefølge
         underweight_candidates.sort(key=lambda x: x[0])
-
-        # Hent årets dagnummer (1-365) til matematisk rotation
         day_of_year = datetime.datetime.now().timetuple().tm_yday
         index = day_of_year % len(underweight_candidates)
         
@@ -322,7 +323,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK PROXY HÅNDTERING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -331,23 +332,31 @@ class ScreenerComplianceAgent:
         "Tobacco", "Distillers & Vintners", "Breweries"
     ]
 
-    def __init__(self, tickers: list):
+    def __init__(self, tickers: list, target_category: str = None):
         self.tickers = tickers
+        self.target_category = target_category  # Gemmer nattens fokuskategori
 
     def map_to_category_and_sector(self, symbol: str, sector: str, industry: str) -> tuple:
         sym = symbol.upper()
         sec_l = sector.lower() if sector else ""
         ind_l = industry.lower() if industry else ""
 
+        # Sukuk & Kontant-Proxies
         if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
+            # Sikkerhedsnet: Hvis nattens fokus er Kontanter/Private, tillader vi,
+            # at ultra-stabile Sukuks (SPSK/SKUK) fungerer som godkendte proxies.
+            if self.target_category == "Kontanter/Private":
+                return "Kontanter/Private", "Sukuk"
             return "Sukuk", "Sukuk"
             
+        # Råvarer
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining royalty"
         if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or \
            any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrielle metaller / kobber"
 
+        # Aktier
         if sym == "VWS.CO" or "wind" in ind_l:
             return "Aktier", "Vind"
         if sym == "NKT.CO" or "cable" in ind_l or "electrical" in ind_l:
@@ -559,23 +568,15 @@ class CouncilAgent:
 #  PODCAST AGENT (PODCASTFY POWERED HIGH-ENERGY CNBC/BLOOMBERG TALKSHOW)
 # =====================================================================
 class PodcastAgent:
-    """
-    Leverages Podcastfy's highly advanced open-source codebase to generate 
-    the ultimate dynamic, high-energy financial podcast on English using Microsoft Edge TTS.
-    Sarah & Mark moderate, introduce the show, and challenge the council [3].
-    """
     def __init__(self, api_key: str):
         self.api_key = api_key
         if self.api_key:
-            # Sørg for, at API-nøglerne er tilgængelige for LiteLLM under motorhjelmen
             os.environ["GEMINI_API_KEY"] = self.api_key
             os.environ["GOOGLE_API_KEY"] = self.api_key
 
     def generate_podcast_audio(self, report_html: str) -> str:
-        # Vi importerer først her for at undgå unødige startforsinkelser i main thread
         from podcastfy.client import generate_podcast
         
-        # CNBC & Bloomberg Style konfiguration til Podcastfy
         custom_config = {
             "word_count": 900,
             "conversation_style": ["engaging", "fast-paced", "enthusiastic", "hardcore Bloomberg debate"],
@@ -603,7 +604,7 @@ class PodcastAgent:
             print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS...")
             audio_path = generate_podcast(
                 text=report_html,
-                tts_model="edge",  # Kører med Microsoft Edge TTS (100% gratis og utrolig levende på engelsk)
+                tts_model="edge",
                 conversation_config=custom_config
             )
             return audio_path
@@ -685,8 +686,9 @@ def main():
         print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
 
         # 6. Kør compliance screening (Sharia & Gælds-barrierer)
+        # Vi overfører focus_category til Screener's constructor, så den kan håndtere kontant-proxies dynamisk!
         print("Screener kandidater mod Sharia- og gældskrav...")
-        screener = ScreenerComplianceAgent(combined_candidates)
+        screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
         approved_stocks = screener.run_screening(focus_category)
         print(f"Godkendte kandidater fundet efter screening: {[s['symbol'] for s in approved_stocks]}")
 
@@ -728,7 +730,7 @@ def main():
             except Exception as e:
                 detailed_candidates_data.append(stock)
 
-        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport (Engelsk)
+        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
         council_report_html = "<h3>LLM Council fejl</h3>"
         output_mp3 = "llm_council_podcast.mp3"
         podcast_compiled = False
@@ -756,7 +758,6 @@ def main():
             
             if generated_file and os.path.exists(generated_file):
                 try:
-                    # Kopier eller omdøb den genererede lydfil til vores standard llm_council_podcast.mp3
                     import shutil
                     shutil.copyfile(generated_file, output_mp3)
                     podcast_compiled = True
