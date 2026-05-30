@@ -206,6 +206,70 @@ def search_ticker_by_name(query: str) -> str:
 
 
 # =====================================================================
+#  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
+# =====================================================================
+def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
+    wb = openpyxl.Workbook()
+    
+    # 1. FANEN: Beholdninger
+    ws1 = wb.active
+    ws1.title = "Beholdninger"
+    
+    headers1 = [
+        "Position", "Ticker", "Status", "Antal", "Kurs (DKK)", 
+        "Markedsværdi (DKK)", "Aktivklasse", "Drivkraft", "Sektor", 
+        "Region", "Porteføljevægt", "Rolle", "Kommentar / tese"
+    ]
+    ws1.append(headers1)
+    
+    for idx, item in enumerate(holdings_list, start=2):
+        name = item.get("name", "Other") if isinstance(item, dict) else item.get("Company Name", "Other")
+        symbol = item.get("ticker", "Other") if isinstance(item, dict) else item.get("Ticker", "Other")
+        shares = int(item.get("Shares", 1)) if "Shares" in item else 1
+        cat = item.get("asset_class", "Aktier") if isinstance(item, dict) else item.get("Category", "Aktier")
+        sec = item.get("sector", "Other") if isinstance(item, dict) else item.get("Sector", "Other")
+        
+        # Hvis det er et manuelt aktiv
+        if "PVT_" in symbol or "CASH_" in symbol:
+            val = float(item.get("manual_value", 1000))
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value="")
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=1)
+            ws1.cell(row=idx, column=5, value=val)
+            ws1.cell(row=idx, column=6, value=val)
+        else:
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value=symbol)
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=shares)
+            ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
+            ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')
+            
+        ws1.cell(row=idx, column=7, value=cat)
+        ws1.cell(row=idx, column=8, value="")
+        ws1.cell(row=idx, column=9, value=sec)
+        ws1.cell(row=idx, column=10, value="Global")
+        ws1.cell(row=idx, column=11, value=f'=F{idx}/SUM(F$2:F$100)')
+        ws1.cell(row=idx, column=12, value="")
+        ws1.cell(row=idx, column=13, value="")
+
+    # 2. FANEN: Opsummering
+    ws2 = wb.create_sheet(title="Opsummering")
+    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
+    ws2.append(headers2)
+    
+    # Skriv watchlist i Kolonne N (14)
+    for idx, ticker in enumerate(watchlist_list, start=2):
+        ws2.cell(row=idx, column=14, value=ticker)
+        
+    excel_data = io.BytesIO()
+    wb.save(excel_data)
+    excel_data.seek(0)
+    return excel_data.getvalue()
+
+
+# =====================================================================
 #  GOOGLE SHEETS / EXCEL AGENT
 # =====================================================================
 class GoogleSheetsAgent:
@@ -489,7 +553,7 @@ class ScreenerComplianceAgent:
         if "cash" in sym or "money market" in sec_l:
             return "Kontanter/Private", "Cash & Liquidity Reserves"
 
-        # Dynamisk kobling til de overordnede kategorier
+        # Dynamisk kobling til de nye overordnede kategorier
         if "pharmaceutical" in ind_l or "biotechnology" in ind_l:
             return "Aktier", "Pharmaceuticals & Biotech"
         if "medical" in ind_l or "healthcare" in sec_l:
@@ -773,7 +837,7 @@ class PodcastAgent:
 
 
 # =====================================================================
-#  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
+#  DELIVERY AGENT (HTML & VEDHÆFTNINGER SMTP)
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
@@ -823,7 +887,7 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW (HER RETTES AUTOMATISK VED HÆFTNINGS-MANGLEN FRA GITHUB)
+#  ORCHESTRATOR / SYSTEM FLOW (HER ANVENDES NU DET RETTEDE KARTOTEK)
 # =====================================================================
 def main():
     try:
@@ -941,7 +1005,7 @@ def main():
         if podcast_compiled:
             attachments_list.append({"path": output_mp3, "name": "Wazir_LLM_Council_Podcast.mp3"})
             
-        # Generer dit live-formel Excel-ark til din natlige mail
+        # Generer dit live-formel Excel-ark til din natlige mail (OPDATERET: tilføjet til dit natlige script!)
         excel_raw_bytes = generate_excel_template_bytes(current_holdings, watchlist_tickers)
         attachments_list.append({"data": excel_raw_bytes, "name": "Wazir_Live_Portfolio_Template.xlsx"})
 
