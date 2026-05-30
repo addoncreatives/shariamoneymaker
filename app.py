@@ -74,6 +74,7 @@ TARGET_SUBSECTORS = [
     "Software / platform", "Industrielle metaller / kobber", "Logistik"
 ]
 
+# DET STATISKE LYNHURTIGE KARTOTEK (Failsafe for at undgå IP-blokeringer fra Yahoo)
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharma"),
     "NOVO-B": ("Aktier", "Pharma"),
@@ -103,6 +104,7 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "ETF - global")
 }
 
+# GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
     "Aktier": [
         "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
@@ -141,6 +143,9 @@ if EMAIL_PASSWORD:
     EMAIL_PASSWORD = EMAIL_PASSWORD.replace(" ", "").strip()
 
 
+# =====================================================================
+#  STÆRK TEKST-NORMALISERING (FJERNER STAVE- OG APOSTROF-FEJL)
+# =====================================================================
 def normalize_string(s: str) -> str:
     if not s or pd.isna(s):
         return ""
@@ -152,6 +157,9 @@ def normalize_string(s: str) -> str:
     return s
 
 
+# =====================================================================
+#  LIVE SEARCH-TO-TICKER MOTOR (MED AUTOFULLENDELSE & DYNAMISKE MULTI-FORSLAG)
+# =====================================================================
 def search_tickers_by_name_multi(query: str) -> list:
     if not query or pd.isna(query) or len(str(query).strip()) < 2:
         return []
@@ -159,7 +167,7 @@ def search_tickers_by_name_multi(query: str) -> list:
     query_clean = str(query).strip()
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_clean}"
     headers = {
-        'User-Agent': 'Mozilla/5.0'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     try:
         response = requests.get(url, headers=headers, timeout=5)
@@ -179,6 +187,9 @@ def search_tickers_by_name_multi(query: str) -> list:
     return []
 
 
+# =====================================================================
+#  GOOGLE SHEETS / EXCEL AGENT
+# =====================================================================
 class GoogleSheetsAgent:
     def __init__(self, sheet_id: str):
         self.sheet_id = sheet_id
@@ -395,7 +406,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (DYNAMISK MAPPING)
+#  SCREENER & COMPLIANCE AGENT (AUTOMATISK DETEKTERING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -785,8 +796,27 @@ st.markdown("""
 st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
 
-st.write("Welcome, Investor. This portal configures your personal, automated investment advisory department. "
-         "Once submitted, you will receive your **first investment dossier and audio podcast in your inbox within 60 seconds**.")
+# Pæn, engelsk forklaring af værditilbuddet (Value Proposition) [3]
+st.markdown("""
+    <div style="background-color: #F8FAFC; padding: 25px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 30px;">
+        <h3 style="color: #0F172A; font-family: 'Georgia', serif; margin-top: 0;">🛡️ Ethical Shariah-Compliant Filtering</h3>
+        <p style="color: #334155; margin-bottom: 20px;">
+            LLM Council operates under strict Islamic ethical constraints. 
+            Our automated live engine immediately purges companies associated with:
+            Traditional interest-bearing debt (conventional banking and insurance) [3], alcohol, pork, weapons, defense, 
+            gambling, and adult entertainment. Additionally, any asset with a live debt-to-equity or 
+            debt-to-market-cap ratio exceeding 30% is immediately disqualified [3].
+        </p>
+        <h3 style="color: #0F172A; font-family: 'Georgia', serif;">🗳️ Why the LLM Council Method Works</h3>
+        <p style="color: #334155; margin-bottom: 0;">
+            Rather than relying on a single stagnant AI opinion, we submit your portfolio to a dynamic, 
+            adversarial debate between <strong>five distinct virtual financial specialists</strong> [3] (Skeptics, Growth Hunters, 
+            Logicians, and Strategists) [3]. This pressure-tests your holdings from multiple conflicting perspectives, 
+            spotting overlapping risks and hidden capex cycles [3]. The Chairman then synthesizes their argument 
+            to deliver an objective, highly tailored capital allocation blueprint directly to your inbox [3].
+        </p>
+    </div>
+""", unsafe_allow_html=True)
 
 # Initialize session state for active holdings if not present
 if "holdings" not in st.session_state:
@@ -802,7 +832,9 @@ if "targets" not in st.session_state:
 if "horizon" not in st.session_state:
     st.session_state.horizon = "7-15 years"
 if "user_name" not in st.session_state:
-    st.session_state.user_name = "Investor" # Neutralized default name
+    st.session_state.user_name = "Investor"
+if "frequency" not in st.session_state:
+    st.session_state.frequency = "Weekly"
 
 # =====================================================================
 #  DATABASE INTEGRATION (GRATIS SAAS MODEL VIA GOOGLE WEB APP)
@@ -822,7 +854,7 @@ def load_user_portfolio_from_db(email: str, password: str) -> dict:
         print(f"Kunne ikke hente profil fra database: {str(e)}")
     return None
 
-def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets: dict, horizon: str, name: str) -> str:
+def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets: dict, horizon: str, name: str, frequency: str) -> str:
     if not DATABASE_URL or DATABASE_URL.strip() == "":
         return "no_db"
     payload = {
@@ -831,7 +863,8 @@ def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets
         "holdings": holdings,
         "targets": targets,
         "horizon": horizon,
-        "name": name
+        "name": name,
+        "frequency": frequency # Gemmer din ugentlige/daglige frekvens [3]
     }
     try:
         response = requests.post(DATABASE_URL, json=payload, timeout=15)
@@ -863,6 +896,7 @@ if login_email and "@" in login_email and login_password:
             st.session_state.targets = db_profile.get("targets")
             st.session_state.horizon = db_profile.get("horizon")
             st.session_state.user_name = db_profile.get("name")
+            st.session_state.frequency = db_profile.get("frequency", "Weekly")
         elif res_data.get("status") == "incorrect_password":
             st.sidebar.error("Incorrect password for this email!")
         elif res_data.get("status") == "not_found":
@@ -885,7 +919,8 @@ if is_new_user:
                 holdings=st.session_state.holdings,
                 targets=st.session_state.targets,
                 horizon=st.session_state.horizon,
-                name=signup_name
+                name=signup_name,
+                frequency=st.session_state.frequency
             )
             if status == "success":
                 st.sidebar.success("Account created successfully!")
@@ -895,7 +930,7 @@ if is_new_user:
                 st.sidebar.error("Registration failed. Try again.")
 
 # =====================================================================
-#  STEP 1: PERSONAL PROFILE DETAILS
+#  STEP 1: PERSONAL PROFILE DETAILS (ENGLISH ONLY)
 # =====================================================================
 st.subheader("Step 1: Your Personal Profile")
 col_n1, col_n2 = st.columns(2)
@@ -905,15 +940,27 @@ with col_n1:
 with col_n2:
     user_email_input = st.text_input("Enter your Email Address to receive briefings:", value=login_email if login_email else "", placeholder="your.name@gmail.com")
 
-st.subheader("Step 1.2: Your Investment Horizon")
-horizon_options = ["1-3 years", "3-7 years", "7-15 years", "15+ years"]
-horizon_index = horizon_options.index(st.session_state.horizon) if st.session_state.horizon in horizon_options else 2
+st.subheader("Step 1.2: Your Investment Horizon & Delivery Settings")
+col_s1, col_s2 = st.columns(2)
+with col_s1:
+    horizon_options = ["1-3 years", "3-7 years", "7-15 years", "15+ years"]
+    horizon_index = horizon_options.index(st.session_state.horizon) if st.session_state.horizon in horizon_options else 2
 
-st.session_state.horizon = st.selectbox(
-    "Select your Investment Horizon:", 
-    horizon_options,
-    index=horizon_index
-)
+    st.session_state.horizon = st.selectbox(
+        "Select your Investment Horizon:", 
+        horizon_options,
+        index=horizon_index
+    )
+with col_s2:
+    # Den nye ugentlige/daglige frekvens-vælger [3]
+    freq_options = ["Daily", "Weekly", "Bi-weekly", "Monthly"]
+    freq_index = freq_options.index(st.session_state.frequency) if st.session_state.frequency in freq_options else 1
+    
+    st.session_state.frequency = st.selectbox(
+        "Select Briefing Frequency:",
+        freq_options,
+        index=freq_index
+    )
 
 st.subheader("Step 1.5: Customize Your Target Allocations")
 st.write("Define your target weighting for the major asset classes.")
@@ -941,7 +988,7 @@ else:
     st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 
 # =====================================================================
-#  NY FRISTENDE FEATURE: NEW INVESTOR MODE
+#  STEP 1.8: NEW INVESTOR MODE
 # =====================================================================
 st.subheader("Step 1.8: Investor Status")
 is_new_investor = st.checkbox("I am a completely new investor (starting from scratch)")
@@ -958,7 +1005,6 @@ if not is_new_investor:
     st.subheader("Step 2: Add Assets to Your Active Portfolio")
     st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares [3]!")
 
-    # Knap til manuel registrering af Kontanter & Private Equity
     is_manual = st.checkbox("Is this a manual asset? (Cash, Private Equity, private placements)")
 
     if is_manual:
@@ -970,7 +1016,7 @@ if not is_new_investor:
             
         col_m3, col_m4 = st.columns(2)
         with col_m3:
-            manual_category = st.selectbox("Select Asset Class:", ["Kontanter/Private", "Sukuk", "Råvarer"])
+            manual_category = st.selectbox("Select Asset Class:", ["Cash/Private", "Sukuk", "Commodities"])
         with col_m4:
             manual_sector = st.selectbox("Select Sub-Sector:", TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
             
@@ -981,122 +1027,125 @@ if not is_new_investor:
                     "Company Name": manual_name,
                     "Ticker": virtual_ticker,
                     "Shares": 1,
-                    "Category": manual_category,
+                    "Category": UI_TO_DB_MAP.get(manual_category, "Kontanter/Private"), # Gemmer internt i dansk format [3]
                     "Sector": manual_sector,
                     "manual_value": manual_value
                 })
                 st.success(f"Added manual asset '{manual_name}' to your portfolio!")
                 time.sleep(1)
                 st.rerun()
-    else:
-        # Live søgefelt til almindelige værdipapirer
-        search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'adiddads', 'Novo Nordisk', 'iShares Sukuk'):", "")
+else:
+    search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'adiddads', 'Novo Nordisk', 'iShares Sukuk'):", "")
 
-        if search_query:
-            # Fuzzy multi-search forslag der løser stavefejl!
-            search_results = search_tickers_by_name_multi(search_query)
+    if search_query:
+        search_results = search_tickers_by_name_multi(search_query)
+        
+        if search_results:
+            options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
+            selected_option_str = st.selectbox("Select the correct asset from search results:", options_format)
             
-            if search_results:
-                options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
-                selected_option_str = st.selectbox("Select the correct asset from search results:", options_format)
+            selected_idx = options_format.index(selected_option_str)
+            target_asset = search_results[selected_idx]
+            resolved_ticker = target_asset["symbol"]
+            comp_name = target_asset["name"]
+            
+            try:
+                t = yf.Ticker(resolved_ticker)
+                info = t.info
+                sec = info.get("sector", "Other")
+                ind = info.get("industry", "Other")
                 
-                selected_idx = options_format.index(selected_option_str)
-                target_asset = search_results[selected_idx]
-                resolved_ticker = target_asset["symbol"]
-                comp_name = target_asset["name"]
+                temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
+                cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
                 
-                try:
-                    t = yf.Ticker(resolved_ticker)
-                    info = t.info
-                    sec = info.get("sector", "Other")
-                    ind = info.get("industry", "Other")
-                    
-                    # Map til kategori og delsektor
-                    temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
-                    cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
-                    
-                    st.markdown(f"""
-                    <div class="found-box">
-                        <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Confirmed Match:</span> {comp_name} ({resolved_ticker})<br>
-                        <span style="color: #334155; font-weight: bold;">Asset Class:</span> {cat} | 
-                        <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    col_shares, col_add = st.columns([1, 1])
-                    with col_shares:
-                        shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
-                    with col_add:
-                        st.write(" ")
-                        st.write(" ")
-                        if st.button("➕ Add to Portfolio"):
-                            exists = False
-                            for h in st.session_state.holdings:
-                                if h["Ticker"] == resolved_ticker:
-                                    h["Shares"] += shares_to_add
-                                    exists = True
-                                    break
-                            if not exists:
-                                st.session_state.holdings.append({
-                                    "Company Name": comp_name,
-                                    "Ticker": resolved_ticker,
-                                    "Shares": shares_to_add,
-                                    "Category": cat,
-                                    "Sector": sub_sec
-                                })
-                            st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
-                            time.sleep(1)
-                            st.rerun()
-                except Exception as e:
-                    st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
-            else:
-                st.warning(f"Could not find any assets matching '{search_query}'. Please try another spelling.")
+                # Oversat direkte til engelsk for kunden [3]
+                display_cat = DB_TO_UI_MAP.get(cat, cat)
+                
+                st.markdown(f"""
+                <div class="found-box">
+                    <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Confirmed Match:</span> {comp_name} ({resolved_ticker})<br>
+                    <span style="color: #334155; font-weight: bold;">Asset Class:</span> {display_cat} | 
+                    <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_shares, col_add = st.columns([1, 1])
+                with col_shares:
+                    shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
+                with col_add:
+                    st.write(" ")
+                    st.write(" ")
+                    if st.button("➕ Add to Portfolio"):
+                        exists = False
+                        for h in st.session_state.holdings:
+                            if h["Ticker"] == resolved_ticker:
+                                h["Shares"] += shares_to_add
+                                exists = True
+                                break
+                        if not exists:
+                            st.session_state.holdings.append({
+                                "Company Name": comp_name,
+                                "Ticker": resolved_ticker,
+                                "Shares": shares_to_add,
+                                "Category": cat,
+                                "Sector": sub_sec
+                            })
+                        st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
+                        time.sleep(1)
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
+        else:
+            st.warning(f"Could not find any assets matching '{search_query}'. Please try another spelling.")
 
-    st.write("---")
-    st.write("### Your Current Portfolio")
-    if st.session_state.holdings:
-        holdings_df = pd.DataFrame(st.session_state.holdings)
+st.write("---")
+st.write("### Your Current Portfolio")
+if st.session_state.holdings:
+    holdings_df = pd.DataFrame(st.session_state.holdings)
+    
+    # Skift kolonnenavn til engelsk
+    holdings_df['Category_Display'] = holdings_df['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
+    
+    edited_holdings = st.data_editor(
+        holdings_df,
+        num_rows="dynamic",
+        column_config={
+            "Company Name": st.column_config.TextColumn("Company Name", disabled=True),
+            "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
+            "Shares": st.column_config.NumberColumn("Shares", min_value=1),
+            "Category_Display": st.column_config.TextColumn("Category", disabled=True),
+            "Sector": st.column_config.TextColumn("Sector", disabled=True),
+            "manual_value": st.column_config.NumberColumn("Manual Value (DKK)", min_value=0)
+        },
+        use_container_width=True,
+        key="holdings_editor"
+    )
+    
+    # Gemmer ændringer i Google Sheet
+    if not edited_holdings.equals(holdings_df):
+        st.session_state.holdings = edited_holdings.to_dict(orient="records")
+        st.rerun()
         
-        # Vis tabellen som en flot data editor, hvor de kan slette eller ændre rækker
-        edited_holdings = st.data_editor(
-            holdings_df,
-            num_rows="dynamic",
-            column_config={
-                "Company Name": st.column_config.TextColumn("Company Name", disabled=True),
-                "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
-                "Shares": st.column_config.NumberColumn("Shares", min_value=1),
-                "Category": st.column_config.TextColumn("Category", disabled=True),
-                "Sector": st.column_config.TextColumn("Sector", disabled=True),
-                "manual_value": st.column_config.NumberColumn("Manual Value DKK (Only for Cash/Private)", min_value=0)
-            },
-            use_container_width=True,
-            key="holdings_editor"
-        )
-        
-        if not edited_holdings.equals(holdings_df):
-            st.session_state.holdings = edited_holdings.to_dict(orient="records")
-            st.rerun()
-            
-        # Gør det muligt at gemme sine ændringer i Google Sheet databasen!
-        if login_email and "@" in login_email and login_password:
-            if st.button("💾 Save Changes to My Profile"):
-                with st.spinner("Saving your portfolio..."):
-                    status = save_user_portfolio_to_db(
-                        email=login_email,
-                        password=login_password,
-                        holdings=st.session_state.holdings,
-                        targets=st.session_state.targets,
-                        horizon=st.session_state.horizon,
-                        name=st.session_state.user_name
-                    )
-                    if status == "success":
-                        st.success("Successfully saved your profile! Your nightly council runs are now synchronized.")
-                    elif status == "incorrect_password":
-                        st.error("Cannot save. Incorrect password.")
-                    else:
-                        st.error("Failed to save changes. Please try again.")
-    else:
-        st.info("Your portfolio is currently empty. Use the search field above to add assets.")
+    if login_email and "@" in login_email and login_password:
+        if st.button("💾 Save Changes to My Profile"):
+            with st.spinner("Saving your portfolio..."):
+                status = save_user_portfolio_to_db(
+                    email=login_email,
+                    password=login_password,
+                    holdings=st.session_state.holdings,
+                    targets=st.session_state.targets,
+                    horizon=st.session_state.horizon,
+                    name=st.session_state.user_name,
+                    frequency=st.session_state.frequency # Gemmer nu også ugentlig frekvens [3]
+                )
+                if status == "success":
+                    st.success("Successfully saved your profile! Your nightly council runs are now synchronized.")
+                elif status == "incorrect_password":
+                    st.error("Cannot save. Incorrect password.")
+                else:
+                    st.error("Failed to save changes. Please try again.")
+else:
+    st.info("Your portfolio is currently empty. Use the search field above to add assets.")
 
 # =====================================================================
 #  STEP 3: WATCHLIST (VALGFRI)
@@ -1117,7 +1166,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
     """
     Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
     """
-    # Hvis det er en helt ny investor (starting from scratch)
     if is_new:
         portfolio_distribution = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
         sector_distribution = {sec: 33.3 for sec in new_sectors}
