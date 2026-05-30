@@ -116,7 +116,18 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
-# GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt) - HER ER DET INTEGRERET I DATABASEN!
+# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
+failsafe_db = STATIC_TICKER_MAP.copy()
+if os.path.exists("failsafe_db.json"):
+    try:
+        with open("failsafe_db.json", "r") as f:
+            loaded_db = json.load(f)
+            failsafe_db.update(loaded_db)
+            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
+    except Exception as e:
+        print(f"Warning: Could not load failsafe_db.json: {str(e)}")
+
+# GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
     "Aktier": [
         "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
@@ -134,17 +145,6 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
         "SPSK", "SKUK"
     ]
 }
-
-# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
-failsafe_db = STATIC_TICKER_MAP.copy()
-if os.path.exists("failsafe_db.json"):
-    try:
-        with open("failsafe_db.json", "r") as f:
-            loaded_db = json.load(f)
-            failsafe_db.update(loaded_db)
-            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
-    except Exception as e:
-        print(f"Warning: Could not load failsafe_db.json: {str(e)}")
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -1012,7 +1012,6 @@ def main():
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
 
-        # Hvis genereringen fejlede, klistrer vi fejlloggen direkte ind i bunden af e-mailen!
         if podcast_error_section:
             council_report_html += podcast_error_section
 
