@@ -14,24 +14,24 @@ from email.mime.base import MIMEBase
 from email import encoders
 
 # ---------------------------------------------------------------------
-#  SIKKERHEDSNET: Automatisk installation af openpyxl, hvis det mangler
+#  SAFETY NET: Automatic installation of openpyxl if missing
 # ---------------------------------------------------------------------
 try:
     import openpyxl
 except ImportError:
     import subprocess
-    print("Sikkerhedsnet: openpyxl mangler. Installerer automatisk...")
+    print("Safety net: openpyxl is missing. Installing automatically...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
     import openpyxl
 
 # ---------------------------------------------------------------------
-#  SIKKERHEDSNET: Automatisk installation af edge-tts, hvis det mangler
+#  SAFETY NET: Automatic installation of edge-tts if missing
 # ---------------------------------------------------------------------
 try:
     import edge_tts
 except ImportError:
     import subprocess
-    print("Sikkerhedsnet: edge-tts mangler. Installerer automatisk...")
+    print("Safety net: edge-tts is missing. Installing automatically...")
     subprocess.call([sys.executable, "-m", "pip", "install", "edge-tts"])
     import edge_tts
 
@@ -41,7 +41,7 @@ import pandas as pd
 import streamlit as st
 
 # =====================================================================
-#  KONFIGURATION OG STANDARD-MÅLVÆGTE
+#  CONFIGURATION & STANDARD TARGET WEIGHTS
 # =====================================================================
 
 DISPLAY_CATEGORIES = {
@@ -51,6 +51,7 @@ DISPLAY_CATEGORIES = {
     "Kontanter/Private": "Cash / Private Sector"
 }
 
+# Lydløs tovejs-oversætter, som oversætter de engelske UI-værdier til dit Google Sheet
 UI_TO_DB_MAP = {
     "Equities": "Aktier",
     "Sukuk": "Sukuk",
@@ -162,9 +163,6 @@ if EMAIL_PASSWORD:
     EMAIL_PASSWORD = EMAIL_PASSWORD.replace(" ", "").strip()
 
 
-# =====================================================================
-#  STÆRK TEKST-NORMALISERING
-# =====================================================================
 def normalize_string(s: str) -> str:
     if not s or pd.isna(s):
         return ""
@@ -176,9 +174,6 @@ def normalize_string(s: str) -> str:
     return s
 
 
-# =====================================================================
-#  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
-# =====================================================================
 def search_tickers_by_name_multi(query: str) -> list:
     if not query or pd.isna(query) or len(str(query).strip()) < 2:
         return []
@@ -186,7 +181,7 @@ def search_tickers_by_name_multi(query: str) -> list:
     query_clean = str(query).strip()
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_clean}"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0'
     }
     try:
         response = requests.get(url, headers=headers, timeout=5)
@@ -202,199 +197,72 @@ def search_tickers_by_name_multi(query: str) -> list:
                     results.append({"symbol": sym, "name": name})
             return results[:5]
     except Exception as e:
-        print(f"Søgning fejlede: {str(e)}")
+        print(f"Search failed: {str(e)}")
     return []
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT
+#  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
 # =====================================================================
-class GoogleSheetsAgent:
-    def __init__(self, sheet_id: str):
-        self.sheet_id = sheet_id
-
-    def _read_tab_as_df(self, tab_name: str) -> pd.DataFrame:
-        url = f"https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=xlsx"
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            df = pd.read_excel(io.BytesIO(response.content), sheet_name=tab_name, engine='openpyxl')
-            return df
-        except Exception as e:
-            raise RuntimeError(f"Kunne ikke indlæse fanen '{tab_name}': {str(e)}")
-
-    def _clean_and_align_df(self, df: pd.DataFrame, key_header_word: str) -> pd.DataFrame:
-        for col in df.columns:
-            if key_header_word.lower() in str(col).lower():
-                return df
-                
-        for idx, row in df.head(10).iterrows():
-            row_values = [str(val).lower() for val in row.values]
-            if any(key_header_word.lower() in val for val in row_values):
-                new_columns = df.iloc[idx].values
-                df.columns = new_columns
-                df = df.iloc[idx+1:].reset_index(drop=True)
-                return df
-        return df
-
-    def _find_column_by_keyword(self, df: pd.DataFrame, keyword: str) -> str:
-        for col in df.columns:
-            if keyword.lower() in str(col).lower():
-                return col
-        return None
-
-    def get_current_weights_and_sectors(self) -> tuple:
-        try:
-            raw_df = self._read_tab_as_df("Beholdninger")
-            df = self._clean_and_align_df(raw_df, "ticker")
+def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
+    wb = openpyxl.Workbook()
+    
+    # 1. FANEN: Beholdninger
+    ws1 = wb.active
+    ws1.title = "Beholdninger"
+    
+    headers1 = [
+        "Position", "Ticker", "Status", "Antal", "Kurs (DKK)", 
+        "Markedsværdi (DKK)", "Aktivklasse", "Drivkraft", "Sektor", 
+        "Region", "Porteføljevægt", "Rolle", "Kommentar / tese"
+    ]
+    ws1.append(headers1)
+    
+    for idx, item in enumerate(holdings_list, start=2):
+        name = item.get("Company Name", "Other")
+        symbol = item.get("Ticker", "Other")
+        shares = int(item.get("Shares", 1))
+        cat = item.get("Category", "Aktier")
+        sec = item.get("Sector", "Other")
+        
+        # Hvis det er et manuelt aktiv
+        if "PVT_" in symbol or "CASH_" in symbol:
+            val = float(item.get("manual_value", 1000))
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value="")
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=1)
+            ws1.cell(row=idx, column=5, value=val)
+            ws1.cell(row=idx, column=6, value=val)
+        else:
+            ws1.cell(row=idx, column=1, value=name)
+            ws1.cell(row=idx, column=2, value=symbol)
+            ws1.cell(row=idx, column=3, value="Ejer")
+            ws1.cell(row=idx, column=4, value=shares)
+            ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
+            ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')
             
-            ticker_col = self._find_column_by_keyword(df, "ticker")
-            drivkraft_col = self._find_column_by_keyword(df, "drivkraft")
-            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
-            sektor_col = self._find_column_by_keyword(df, "sektor")
-            weight_col = self._find_column_by_keyword(df, "vægt")
-            mv_col = self._find_column_by_keyword(df, "markedsværdi")
+        ws1.cell(row=idx, column=7, value=cat)
+        ws1.cell(row=idx, column=8, value="")
+        ws1.cell(row=idx, column=9, value=sec)
+        ws1.cell(row=idx, column=10, value="Global")
+        ws1.cell(row=idx, column=11, value=f'=F{idx}/SUM(F$2:F$100)')
+        ws1.cell(row=idx, column=12, value="")
+        ws1.cell(row=idx, column=13, value="")
 
-            if not weight_col:
-                raise KeyError("Kunne ikke lokalisere de nødvendige kolonner i Google Sheet.")
-
-            def clean_number(val):
-                if pd.isna(val) or val == "":
-                    return 0.0
-                val_str = str(val).replace('%', '').replace('kr', '').replace('$', '').replace(' ', '').replace('\xa0', '').strip()
-                if ',' in val_str and '.' in val_str:
-                    if val_str.find('.') < val_str.find(','):
-                        val_str = val_str.replace('.', '').replace(',', '.')
-                    else:
-                        val_str = val_str.replace(',', '').replace('.', '.')
-                elif ',' in val_str:
-                    val_str = val_str.replace(',', '.')
-                try:
-                    return float(val_str)
-                except ValueError:
-                    return 0.0
-
-            df['Cleaned_Weight'] = df[weight_col].apply(clean_number)
-            df['Cleaned_MV'] = df[mv_col].apply(clean_number) if mv_col else 0.0
-
-            total_mv = df['Cleaned_MV'].sum()
-            total_weight = df['Cleaned_Weight'].sum()
-
-            if total_weight < 1.0 and total_mv > 0.0:
-                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
-            elif total_mv > 0.0:
-                df['Cleaned_Weight'] = (df['Cleaned_MV'] / total_mv) * 100.0
-
-            portfolio_distribution = {k: 0.0 for k in TARGET_PORTFOLIO.keys()}
-            sector_distribution = {}
-
-            temp_screener = ScreenerComplianceAgent([])
-
-            for _, row in df.iterrows():
-                row_weight = row['Cleaned_Weight']
-                if row_weight <= 0.0:
-                    continue
-
-                symbol = str(row.get(ticker_col, "")).strip().upper()
-                drivkraft_val = normalize_string(row.get(drivkraft_col, "")) if drivkraft_col else ""
-                aktivklasse_val = normalize_string(row.get(aktivklasse_col, "")) if aktivklasse_col else ""
-                sektor_val = normalize_string(row.get(sektor_col, "")) if sektor_col else ""
-
-                combined_text = f"{drivkraft_val} {aktivklasse_val} {sektor_val}"
-                
-                category = None
-                subsector = None
-
-                if "sukuk" in combined_text:
-                    category = "Sukuk"
-                    subsector = "Sukuk & Fixed Income"
-                elif any(word in combined_text for word in ["råvarer", "ravarer", "guld", "gold", "commodities"]):
-                    category = "Råvarer"
-                    subsector = "Mining & Royalty Streams"
-                elif any(word in combined_text for word in ["kontant", "cash", "private"]):
-                    category = "Kontanter/Private"
-                    subsector = "Cash & Liquidity Reserves"
-                elif "aktie" in combined_text:
-                    category = "Aktier"
-
-                if not category or not subsector:
-                    try:
-                        t = yf.Ticker(symbol)
-                        info = t.info
-                        sec = info.get("sector", "Other")
-                        ind = info.get("industry", "Other")
-                        
-                        cat_detect, sub_detect = temp_screener.map_to_category_and_sector(symbol, sec, ind)
-                        category = category if category else cat_detect
-                        subsector = subsector if subsector else sub_detect
-                    except Exception:
-                        category = category if category else "Aktier"
-                        subsector = subsector if subsector else "Other"
-
-                if category in portfolio_distribution:
-                    portfolio_distribution[category] += row_weight
-                
-                if subsector not in sector_distribution:
-                    sector_distribution[subsector] = 0.0
-                sector_distribution[subsector] += row_weight
-
-            return portfolio_distribution, sector_distribution
-        except Exception as e:
-            print(f"Fejl under indlæsning: {str(e)}")
-            return {k: 0.0 for k in TARGET_PORTFOLIO.keys()}, {}
-
-    def get_current_holdings_details(self) -> list:
-        try:
-            raw_df = self._read_tab_as_df("Beholdninger")
-            df = self._clean_and_align_df(raw_df, "ticker")
-            
-            ticker_col = self._find_column_by_keyword(df, "ticker")
-            position_col = self._find_column_by_keyword(df, "position") or self._find_column_by_keyword(df, "navn")
-            mv_col = self._find_column_by_keyword(df, "markedsværdi")
-            sektor_col = self._find_column_by_keyword(df, "sektor")
-            aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
-            
-            holdings = []
-            for _, row in df.iterrows():
-                ticker = str(row.get(ticker_col, "")).strip().upper()
-                if ticker and not pd.isna(row.get(ticker_col)) and ticker not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
-                    holdings.append({
-                        "ticker": ticker,
-                        "name": str(row.get(position_col, ticker)).strip(),
-                        "market_value": str(row.get(mv_col, "0.00 DKK")).strip(),
-                        "sector": str(row.get(sektor_col, "N/A")).strip(),
-                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip()
-                    })
-            return holdings
-        except Exception as e:
-            print(f"Fejl: {str(e)}")
-            return []
-
-    def get_watchlist_tickers(self) -> list:
-        try:
-            raw_df = self._read_tab_as_df("Opsummering")
-            df = self._clean_and_align_df(raw_df, "huller")
-            watchlist_col = self._find_column_by_keyword(df, "huller") or self._find_column_by_keyword(df, "watchlist")
-            
-            tickers = []
-            if watchlist_col:
-                raw_series = df[watchlist_col]
-            else:
-                if len(df.columns) >= 14:
-                    raw_series = df.iloc[:, 13]
-                else:
-                    return []
-
-            for val in raw_series:
-                if pd.isna(val):
-                    continue
-                val_str = str(val).strip().upper()
-                if val_str and len(val_str) < 12 and re.match(r'^[A-Z0-9\.\-]+$', val_str):
-                    if val_str not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
-                        tickers.append(val_str)
-            return list(set(tickers))
-        except Exception as e:
-            return []
+    # 2. FANEN: Opsummering
+    ws2 = wb.create_sheet(title="Opsummering")
+    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
+    ws2.append(headers2)
+    
+    # Skriv watchlist i Kolonne N (14)
+    for idx, ticker in enumerate(watchlist_list, start=2):
+        ws2.cell(row=idx, column=14, value=ticker)
+        
+    excel_data = io.BytesIO()
+    wb.save(excel_data)
+    excel_data.seek(0)
+    return excel_data.getvalue()
 
 
 # =====================================================================
@@ -774,7 +642,7 @@ class PodcastAgent:
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
-    def send_email(subject: str, html_content: str, attachment_path: str = None):
+    def send_email(subject: str, html_content: str, attachments: list = None):
         if not EMAIL_PASSWORD or EMAIL_PASSWORD.strip() == "":
             print("EMAIL_PASSWORD mangler i GitHub Secrets. Udskriver HTML i konsol:")
             print(html_content)
@@ -786,17 +654,26 @@ class DeliveryAgent:
         msg["Subject"] = subject
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
-        if attachment_path and os.path.exists(attachment_path):
-            print(f"Vedhæfter lydfil: {attachment_path}...")
-            with open(attachment_path, "rb") as attachment:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(attachment.read())
-                encoders.encode_base64(part)
-                part.add_header(
-                    "Content-Disposition",
-                    f"attachment; filename= {os.path.basename(attachment_path)}",
-                )
-                msg.attach(part)
+        if attachments:
+            for att in attachments:
+                path = att.get("path")
+                data = att.get("data")
+                name = att.get("name")
+                
+                if (path and os.path.exists(path)) or data:
+                    part = MIMEBase("application", "octet-stream")
+                    if data:
+                        part.set_payload(data)
+                    else:
+                        with open(path, "rb") as attachment:
+                            part.set_payload(attachment.read())
+                    
+                    encoders.encode_base64(part)
+                    part.add_header(
+                        "Content-Disposition",
+                        f"attachment; filename= {name}",
+                    )
+                    msg.attach(part)
 
         try:
             print(f"Forbinder til SMTP server ({SMTP_SERVER}:{SMTP_PORT}) med afsender-login: {EMAIL_SENDER}...")
@@ -814,60 +691,30 @@ class DeliveryAgent:
 #  STREAMLIT BRUGERGRÆNSEFLADE (SAMLING AF APP.PY)
 # =====================================================================
 
-# Custom CSS til styling (Slate & Gold tema)
-st.markdown("""
-    <style>
-    .main-title {
-        color: #0F172A;
-        font-family: 'Georgia', serif;
-        font-size: 38px;
-        font-weight: bold;
-        text-align: center;
-        margin-bottom: 5px;
-    }
-    .subtitle {
-        color: #C5A880;
-        font-family: 'Helvetica Neue', sans-serif;
-        font-size: 16px;
-        text-align: center;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        margin-bottom: 30px;
-    }
-    .found-box {
-        background-color: #F8FAFC; 
-        padding: 15px; 
-        border-radius: 8px; 
-        border: 1px solid #C5A880; 
-        margin-bottom: 15px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
+st.title("🗳️ LLM Council")
+st.caption("PREMIUM INVESTMENT NEWSLETTER & PODCAST SERVICE")
 
 # Pæn, engelsk forklaring af værditilbuddet (Value Proposition)
 st.markdown("""
-    <div style="background-color: #F8FAFC; padding: 25px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 30px;">
-        <h3 style="color: #0F172A; font-family: 'Georgia', serif; margin-top: 0;">🛡️ Ethical Shariah-Compliant Filtering</h3>
-        <p style="color: #334155; margin-bottom: 20px;">
+    <div style="border: 1px solid #E2E8F0; padding: 25px; border-radius: 8px; margin-bottom: 30px;">
+        <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ Ethical Shariah-Compliant Filtering</h3>
+        <p style="margin-bottom: 20px;">
             LLM Council operates under strict Islamic ethical constraints. 
             Our automated live engine immediately purges companies associated with:
             Traditional interest-bearing debt (conventional banking and insurance), alcohol, pork, weapons, defense, 
             gambling, and adult entertainment. Additionally, any asset with a live debt-to-equity or 
             debt-to-market-cap ratio exceeding 30% is immediately disqualified.
         </p>
-        <h3 style="color: #0F172A; font-family: 'Georgia', serif; margin-top: 25px;">📊 The 4 Pillars of a Shariah-Compliant Portfolio</h3>
-        <p style="color: #334155; margin-bottom: 10px;">For new investors, building a robust, diversified, and halaal portfolio requires spreading your capital across four core pillars, each acting as a unique engine of growth and protection:</p>
-        <ul style="color: #334155; margin-bottom: 20px;">
+        <h3 style="font-family: 'Georgia', serif; margin-top: 25px;">📊 The 4 Pillars of a Shariah-Compliant Portfolio</h3>
+        <p style="margin-bottom: 10px;">For new investors, building a robust, diversified, and halaal portfolio requires spreading your capital across four core pillars, each acting as a unique engine of growth and protection:</p>
+        <ul style="margin-bottom: 20px;">
             <li><strong>Equities (Aktier):</strong> Fractional ownership in global businesses. We only select companies that pass strict qualitative filters (no unlawful lines of business) and conservative quantitative audits (debt-to-equity and interest-bearing liquidity must be below 30%).</li>
             <li><strong>Sukuk (Islamic Bonds):</strong> Asset-backed financial certificates. Since conventional interest-bearing bonds are strictly prohibited (Riba), Sukuk certificates generate yields for you from tangible underlying assets (such as real estate leasing or profit-sharing partnerships). They act as your portfolio's stable income stream.</li>
             <li><strong>Commodities (Råvarer):</strong> Tangible, physical hard assets like gold, silver, or key industrial materials. Commodities act as a store of real value and your primary defense mechanism against currency devaluation and global inflation.</li>
             <li><strong>Cash / Private Sector (Kontanter/Private):</strong> Highly liquid cash reserves, Sharia money-market proxies, or private equity investments used for tactical rebalancing, emergency funds, or long-term private business backing.</li>
         </ul>
-        <h3 style="color: #0F172A; font-family: 'Georgia', serif;">🗳️ Why the LLM Council Method Works</h3>
-        <p style="color: #334155; margin-bottom: 0;">
+        <h3 style="font-family: 'Georgia', serif;">🗳️ Why the LLM Council Method Works</h3>
+        <p style="margin-bottom: 0;">
             Rather than relying on a single stagnant AI opinion, we submit your portfolio to a dynamic, 
             adversarial debate between <strong>five distinct virtual financial specialists</strong> (Skeptics, Logicians, Growth Hunters, 
             Strategists, and Practicians). This pressure-tests your holdings from multiple conflicting perspectives, 
@@ -877,7 +724,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Initialize session state for active holdings if not present (NU HELT TOM VED OPSTART)
+# Initialize session state for active holdings (NU HELT TOM VED OPSTART)
 if "holdings" not in st.session_state:
     st.session_state.holdings = []
 if "targets" not in st.session_state:
@@ -902,7 +749,7 @@ def load_user_portfolio_from_db(email: str, password: str) -> dict:
             if data.get("status") == "success":
                 return data
             elif data.get("status") == "incorrect_password":
-                st.sidebar.error("Incorrect password for this email!")
+                st.error("Incorrect password for this email!")
     except Exception as e:
         print(f"Kunne ikke hente profil fra database: {str(e)}")
     return None
@@ -929,11 +776,14 @@ def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets
     return "error"
 
 # =====================================================================
-#  STEP 1: LOGIN & PROFIL (MED ÆGTE PASSWORD SIGNUP)
+#  STEP 1: LOGIN & PROFIL (MED ÆGTE PASSWORD SIGNUP) - NU PÅ HOVEDSIDEN!
 # =====================================================================
-st.sidebar.markdown("### 👤 SaaS Investor Access")
-login_email = st.sidebar.text_input("Enter your Email", placeholder="your.name@gmail.com")
-login_password = st.sidebar.text_input("Enter your Password", type="password")
+st.subheader("Step 1: SaaS Investor Access")
+col_l1, col_l2 = st.columns(2)
+with col_l1:
+    login_email = st.text_input("Enter your Email", placeholder="your.name@gmail.com")
+with col_l2:
+    login_password = st.text_input("Enter your Password", type="password")
 
 is_new_user = False
 db_profile = None
@@ -943,7 +793,7 @@ if login_email and "@" in login_email and login_password:
     if response.status_code == 200:
         res_data = response.json()
         if res_data.get("status") == "success":
-            st.sidebar.success(f"Loaded profile for {res_data.get('name')}!")
+            st.success(f"Loaded profile for {res_data.get('name')}!")
             db_profile = res_data
             st.session_state.holdings = db_profile.get("holdings")
             st.session_state.targets = db_profile.get("targets")
@@ -951,20 +801,23 @@ if login_email and "@" in login_email and login_password:
             st.session_state.user_name = db_profile.get("name")
             st.session_state.frequency = db_profile.get("frequency", "Weekly")
         elif res_data.get("status") == "incorrect_password":
-            st.sidebar.error("Incorrect password for this email!")
+            st.error("Incorrect password for this email!")
         elif res_data.get("status") == "not_found":
             is_new_user = True
-            st.sidebar.info("Email not found. Fill out the signup fields below to register!")
+            st.info("Email not found. Fill out the signup fields below to register!")
 
 if is_new_user:
-    confirm_password = st.sidebar.text_input("Confirm Password", type="password")
-    signup_name = st.sidebar.text_input("Your Full Name", value="Investor")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        confirm_password = st.text_input("Confirm Password", type="password")
+    with col_s2:
+        signup_name = st.text_input("Your Full Name", value="Investor")
     
-    if st.sidebar.button("📝 Register Account"):
+    if st.button("📝 Register Account"):
         if login_password != confirm_password:
-            st.sidebar.error("Passwords do not match!")
+            st.error("Passwords do not match!")
         elif not signup_name:
-            st.sidebar.error("Please enter your name.")
+            st.error("Please enter your name.")
         else:
             status = save_user_portfolio_to_db(
                 email=login_email,
@@ -976,16 +829,18 @@ if is_new_user:
                 frequency=st.session_state.frequency
             )
             if status == "success":
-                st.sidebar.success("Account created successfully!")
+                st.success("Account created successfully!")
                 st.session_state.user_name = signup_name
                 st.rerun()
             else:
-                st.sidebar.error("Registration failed. Try again.")
+                st.error("Registration failed. Try again.")
+
+st.write("---")
 
 # =====================================================================
-#  STEP 1: PERSONAL PROFILE DETAILS (ENGLISH ONLY)
+#  STEP 1.2: PERSONAL PROFILE DETAILS (ENGLISH ONLY)
 # =====================================================================
-st.subheader("Step 1: Your Personal Profile")
+st.subheader("Step 1.2: Your Personal Profile")
 col_n1, col_n2 = st.columns(2)
 with col_n1:
     user_name_input = st.text_input("Enter your Name:", value=st.session_state.user_name)
@@ -994,7 +849,7 @@ with col_n2:
     # Hvis brugeren er logget ind via sidemenuen, låser vi mailen fast her
     user_email_input = st.text_input("Enter your Email Address to receive briefings:", value=login_email if login_email else "", placeholder="your.name@gmail.com")
 
-st.subheader("Step 1.2: Your Investment Horizon & Delivery Settings")
+st.subheader("Step 1.3: Your Investment Horizon & Delivery Settings")
 col_s1, col_s2 = st.columns(2)
 with col_s1:
     horizon_options = ["1-3 years", "3-7 years", "7-15 years", "15+ years"]
@@ -1056,7 +911,7 @@ if is_new_investor:
 # =====================================================================
 if not is_new_investor:
     st.subheader("Step 2: Add Assets to Your Active Portfolio")
-    st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares [3]!")
+    st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares!")
 
     is_manual = st.checkbox("Is this a manual asset? (Cash, Private Equity, private placements)")
 
@@ -1201,7 +1056,7 @@ else:
 #  STEP 3: WATCHLIST (VALGFRI)
 # =====================================================================
 st.subheader("Step 3: Your Watchlist (Optional)")
-st.write("Enter tickers to monitor. If left empty, the system will dynamically screen our global Sharia-growth pool [3].")
+st.write("Enter tickers to monitor. If left empty, the system will dynamically screen our global Sharia-growth pool.")
 watchlist_input = st.text_input(
     "Enter Tickers (comma-separated):",
     "TRMB, SAP, SPSK, AEM, NEM"
@@ -1268,7 +1123,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         
     print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
-    # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
@@ -1322,6 +1176,10 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         horizon=horizon
     )
 
+    # 1. Automatisk kompilering af dit live-opdaterede Excel-styringsark!
+    print("Kompilerer dit live-opdaterede Excel-ark...")
+    excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist)
+
     output_mp3 = "llm_council_podcast.mp3"
     podcast_compiled = False
     
@@ -1333,6 +1191,13 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         shutil.copyfile(generated_file, output_mp3)
         podcast_compiled = True
 
+    # Klargør begge vedhæftninger (både MP3-podcasten og .xlsx-styringsarket!)
+    attachments_list = []
+    if podcast_compiled:
+        attachments_list.append({"path": output_mp3, "name": f"{user_name}_LLM_Council_Podcast.mp3"})
+    
+    attachments_list.append({"data": excel_raw_bytes, "name": f"{user_name}_Live_Portfolio_Template.xlsx"})
+
     os.environ["EMAIL_RECEIVER"] = receiver_email
     subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
     
@@ -1342,42 +1207,54 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
     DeliveryAgent.send_email(
         subject=subject,
         html_content=report_html,
-        attachment_path=output_mp3 if podcast_compiled else None
+        attachments=attachments_list # Sender nu begge filer direkte til mailen!
     )
-    return True, "Your briefing and audio podcast have been sent to your email!"
+    return True, "Your briefing, audio podcast, and custom Excel sheet have been sent to your email!"
 
 # =====================================================================
 #  SAAS START-KNAP
 # =====================================================================
 st.subheader("Step 4: Activate Your Personal Council")
 
-if st.button("🚀 Start My LLM Council & Send First Report"):
-    if not user_email_input or "@" not in user_email_input:
-        st.error("Please enter a valid email address.")
-    elif not is_new_investor and not st.session_state.holdings:
-        st.error("Please configure at least one active holding.")
-    elif is_new_investor and not selected_new_sectors:
-        st.error("Please select at least one sector you want exposure to.")
-    elif not GEMINI_API_KEY:
-        st.error("SaaS master API key is missing on the server.")
-    else:
-        with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
-            # Send alle data afsted til kørslen
-            success, msg = asyncio.run(process_instant_briefing(
-                user_email_input, 
-                st.session_state.holdings, 
-                watchlist_list, 
-                st.session_state.targets, 
-                user_name_input, 
-                st.session_state.horizon,
-                is_new_investor,
-                selected_new_sectors
-            ))
-            if success:
-                st.success(f"Boom! {msg}")
-                st.balloons()
-            else:
-                st.error(f"Failed to generate briefing: {msg}")
+col_b1, col_b2 = st.columns([2, 1])
+with col_b1:
+    if st.button("🚀 Start My LLM Council & Send First Report"):
+        if not user_email_input or "@" not in user_email_input:
+            st.error("Please enter a valid email address.")
+        elif not is_new_investor and not st.session_state.holdings:
+            st.error("Please configure at least one active holding.")
+        elif is_new_investor and not selected_new_sectors:
+            st.error("Please select at least one sector you want exposure to.")
+        elif not GEMINI_API_KEY:
+            st.error("SaaS master API key is missing on the server.")
+        else:
+            with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
+                # Send alle data afsted til kørslen
+                success, msg = asyncio.run(process_instant_briefing(
+                    user_email_input, 
+                    st.session_state.holdings, 
+                    watchlist_list, 
+                    st.session_state.targets, 
+                    user_name_input, 
+                    st.session_state.horizon,
+                    is_new_investor,
+                    selected_new_sectors
+                ))
+                if success:
+                    st.success(f"Boom! {msg}")
+                    st.balloons()
+                else:
+                    st.error(f"Failed to generate briefing: {msg}")
+with col_b2:
+    # Direkte instant download-knap på skærmen til dit live Excel-ark
+    if st.session_state.holdings:
+        excel_bytes = generate_excel_template_bytes(st.session_state.holdings, watchlist_list)
+        st.download_button(
+            label="📥 Download My Excel Sheet",
+            data=excel_bytes,
+            file_name=f"{st.session_state.user_name}_Live_Portfolio.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 # =====================================================================
 #  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN
@@ -1386,13 +1263,13 @@ st.markdown("""
     <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px;">
         <h4 style="color: #991B1B; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Legal Disclaimer & Personal Conviction</h4>
         <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
-            The LLM Council is an automated, AI-driven informational and educational inspiration tool [3]. It is <strong>not</strong> a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates. 
+            The LLM Council is an automated, AI-driven informational and educational inspiration tool. It is <strong>not</strong> a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates. 
         </p>
         <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
             Financial markets carry inherent risks, and Shariah-compliance interpretations can vary across different scholars and madhabs. You must <strong>always</strong> base your final investment decisions on your own research, personal convictions, and common sense. 
         </p>
         <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 0; line-height: 1.5;">
-            To manually audit and double-check the Shariah-compliance, financial health, or business profile of any individual stock or fund, we highly recommend utilizing the official <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a> [1.1.5, 3].
+            To manually audit and double-check the Shariah-compliance, financial health, or business profile of any individual stock or fund, we highly recommend utilizing the official <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
         </p>
     </div>
 """, unsafe_allow_html=True)
