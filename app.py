@@ -109,6 +109,7 @@ GLOBAL_COMPLIANT_GROWTH_POOL = {
 }
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
+DATABASE_URL = os.getenv("DATABASE_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
@@ -143,32 +144,37 @@ def normalize_string(s: str) -> str:
 
 
 # =====================================================================
-#  LIVE SEARCH-TO-TICKER MOTOR (FINDER AUTOMATISK TICKERS FRA NAVNE)
+#  LIVE SEARCH-TO-TICKER MOTOR (MED AUTOFULLENDELSE & DYNAMISKE MULTI-FORSLAG)
 # =====================================================================
-def search_ticker_by_name(query: str) -> str:
-    if not query or pd.isna(query):
-        return None
+def search_tickers_by_name_multi(query: str) -> list:
+    """
+    Søger live på Yahoo Finance og returnerer de 5 mest relevante matches
+    for at kunne håndtere stavefejl (f.eks. 'adiddads') [s1, s3].
+    """
+    if not query or pd.isna(query) or len(str(query).strip()) < 2:
+        return []
     
     query_clean = str(query).strip()
-    
-    # Hvis det allerede ligner en ticker
-    if re.match(r'^[A-Z0-9\.\-]+$', query_clean) and len(query_clean) < 10 and "." in query_clean:
-        return query_clean
-
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_clean}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     try:
-        response = requests.get(url, headers=headers, timeout=6)
+        response = requests.get(url, headers=headers, timeout=5)
         if response.status_code == 200:
             data = response.json()
             quotes = data.get("quotes", [])
-            if quotes:
-                return quotes[0].get("symbol")
+            results = []
+            for q in quotes:
+                sym = q.get("symbol")
+                name = q.get("longname") or q.get("shortname") or sym
+                q_type = q.get("quoteType", "").upper()
+                if sym and q_type in ["EQUITY", "ETF", "MUTUALFUND"]:
+                    results.append({"symbol": sym, "name": name})
+            return results[:5]
     except Exception as e:
-        print(f"Søgning fejlede for '{query_clean}': {str(e)}")
-    return None
+        print(f"Søgning fejlede: {str(e)}")
+    return []
 
 
 # =====================================================================
@@ -390,7 +396,7 @@ class PortfolioManagerAgent:
 
 
 # =====================================================================
-#  SCREENER & COMPLIANCE AGENT (DYNAMISK SØGNING)
+#  SCREENER & COMPLIANCE AGENT (DYNAMISK MAPPING)
 # =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
@@ -457,6 +463,21 @@ class ScreenerComplianceAgent:
 
     def screen_ticker(self, symbol: str) -> dict:
         try:
+            # Virtuelle/manuelle tickers for kontanter/private skal altid bestå screening
+            if "CASH_" in symbol or "PVT_" in symbol:
+                return {
+                    "symbol": symbol,
+                    "passed": True,
+                    "name": symbol.replace("CASH_", "").replace("PVT_", ""),
+                    "pe_ratio": "N/A",
+                    "debt_ratio": "0.00% (Manual)",
+                    "sector": "Manual Asset",
+                    "industry": "Manual Asset",
+                    "category": "Kontanter/Private",
+                    "subsector": "Cash",
+                    "is_etf": False
+                }
+
             zoya_compliant = self.check_zoya_live_compliance(symbol)
             
             if zoya_compliant is False:
@@ -729,140 +750,455 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW (HER RETTES AUTOMATISK VED HÆFTNINGS-MANGLEN FRA GITHUB)
+#  STREAMLIT BRUGERGRÆNSEFLADE (SAMLING AF APP.PY)
 # =====================================================================
-def main():
+
+# Custom CSS til styling (Slate & Gold tema)
+st.markdown("""
+    <style>
+    .main-title {
+        color: #0F172A;
+        font-family: 'Georgia', serif;
+        font-size: 38px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 5px;
+    }
+    .subtitle {
+        color: #C5A880;
+        font-family: 'Helvetica Neue', sans-serif;
+        font-size: 16px;
+        text-align: center;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        margin-bottom: 30px;
+    }
+    .found-box {
+        background-color: #F8FAFC; 
+        padding: 15px; 
+        border-radius: 8px; 
+        border: 1px solid #C5A880; 
+        margin-bottom: 15px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-title">🗳️ LLM Council</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Premium Investment Newsletter & Podcast Service</div>', unsafe_allow_html=True)
+
+# Initialize session state for active holdings if not present
+if "holdings" not in st.session_state:
+    st.session_state.holdings = [
+        {"Company Name": "Novo Nordisk", "Ticker": "NOVO-B.CO", "Shares": 10, "Category": "Aktier", "Sector": "Pharma"},
+        {"Company Name": "Saudi Arabia ETF", "Ticker": "MSAU.L", "Shares": 10, "Category": "Aktier", "Sector": "ETF - regional"},
+        {"Company Name": "Invesco Islamic Global", "Ticker": "IGDA.L", "Shares": 23, "Category": "Aktier", "Sector": "ETF - global"},
+        {"Company Name": "iShares USD Sukuk", "Ticker": "SKUK", "Shares": 100, "Category": "Sukuk", "Sector": "Sukuk"},
+        {"Company Name": "Wheaton Precious Metals", "Ticker": "WPM", "Shares": 5, "Category": "Råvarer", "Sector": "Mining royalty"}
+    ]
+if "targets" not in st.session_state:
+    st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+if "horizon" not in st.session_state:
+    st.session_state.horizon = "7-15 years"
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Wazir"
+
+# =====================================================================
+#  DATABASE INTEGRATION (GRATIS SAAS MODEL VIA GOOGLE WEB APP)
+# =====================================================================
+def load_user_portfolio_from_db(email: str) -> dict:
+    if not DATABASE_URL or DATABASE_URL.strip() == "":
+        return None
     try:
-        print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
-        sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
+        response = requests.get(f"{DATABASE_URL}?email={email}", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success":
+                return data
+    except Exception as e:
+        print(f"Kunne ikke hente profil fra database: {str(e)}")
+    return None
+
+def save_user_portfolio_to_db(email: str, holdings: list, targets: dict, horizon: str, name: str) -> bool:
+    if not DATABASE_URL or DATABASE_URL.strip() == "":
+        return False
+    payload = {
+        "email": email,
+        "holdings": holdings,
+        "targets": targets,
+        "horizon": horizon,
+        "name": name
+    }
+    try:
+        response = requests.post(DATABASE_URL, json=payload, timeout=15)
+        if response.status_code == 200:
+            return response.json().get("status") == "success"
+    except Exception as e:
+        print(f"Kunne ikke gemme profil i database: {str(e)}")
+    return False
+
+# =====================================================================
+#  STEP 1: LOGIN & PROFIL
+# =====================================================================
+st.sidebar.markdown("### 👤 SaaS Investor Access")
+login_email = st.sidebar.text_input("Enter your Email to Log In / Sign Up", placeholder="your.name@gmail.com")
+
+if login_email and "@" in login_email:
+    db_profile = load_user_portfolio_from_db(login_email)
+    if db_profile:
+        st.sidebar.success(f"Profile found! Loaded portfolio for {db_profile.get('name')}.")
+        st.session_state.holdings = db_profile.get("holdings")
+        st.session_state.targets = db_profile.get("targets")
+        st.session_state.horizon = db_profile.get("horizon")
+        st.session_state.user_name = db_profile.get("name")
+    else:
+        st.sidebar.info("New investor! Enter your profile details on the right to register.")
+
+# =====================================================================
+#  STEP 1: PERSONAL PROFILE DETAILS
+# =====================================================================
+st.subheader("Step 1: Your Personal Profile")
+col_n1, col_n2 = st.columns(2)
+with col_n1:
+    user_name_input = st.text_input("Enter your Name:", value=st.session_state.user_name)
+    st.session_state.user_name = user_name_input
+with col_n2:
+    user_email_input = st.text_input("Enter your Email Address to receive briefings:", value=login_email if login_email else "", placeholder="your.name@gmail.com")
+
+st.subheader("Step 1.2: Your Investment Horizon")
+horizon_options = ["1-3 years", "3-7 years", "7-15 years", "15+ years"]
+horizon_index = horizon_options.index(st.session_state.horizon) if st.session_state.horizon in horizon_options else 2
+
+st.session_state.horizon = st.selectbox(
+    "Select your Investment Horizon:", 
+    horizon_options,
+    index=horizon_index
+)
+
+st.subheader("Step 1.5: Customize Your Target Allocations")
+st.write("Define your target weighting for the major asset classes.")
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    target_stocks = st.number_input("Equities (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Aktier", 25.0)))
+with col2:
+    target_sukuk = st.number_input("Sukuk (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Sukuk", 25.0)))
+with col3:
+    target_commodities = st.number_input("Commodities (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Råvarer", 25.0)))
+with col4:
+    target_cash = st.number_input("Cash/Private (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Kontanter/Private", 25.0)))
+
+# Normaliser mål-vægte så de summer til 100%
+total_target = target_stocks + target_sukuk + target_commodities + target_cash
+if total_target > 0:
+    st.session_state.targets = {
+        "Aktier": (target_stocks / total_target) * 100.0,
+        "Sukuk": (target_sukuk / total_target) * 100.0,
+        "Råvarer": (target_commodities / total_target) * 100.0,
+        "Kontanter/Private": (target_cash / total_target) * 100.0
+    }
+else:
+    st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+
+# =====================================================================
+#  STEP 2: ENKELT, SØG-OG-TILFØJ ENGINE (FINTECH STYLE)
+# =====================================================================
+st.subheader("Step 2: Add Assets to Your Active Portfolio")
+st.write("Search for any global company or fund name below. When found, the system will automatically classify its Category and Sector, and you just input your shares [3]!")
+
+# Knap til manuel registrering af Kontanter & Private Equity
+is_manual = st.checkbox("Is this a manual asset? (Cash, Private Equity, private placements)")
+
+if is_manual:
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        manual_name = st.text_input("Enter Asset Name:", placeholder="e.g., Saxo Cash Reserve, Danish PE Fund")
+    with col_m2:
+        manual_value = st.number_input("Total Value (DKK):", min_value=1, value=1000)
         
-        # 1. Hent investors aktuelle vægte samt de 21 delsektorer
-        current_portfolio_weights, sector_distribution = sheets_agent.get_current_weights_and_sectors()
-        print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
-        print(f"Beregnet delsektor-fordeling: {sector_distribution}")
+    col_m3, col_m4 = st.columns(2)
+    with col_m3:
+        manual_category = st.selectbox("Select Asset Class:", ["Kontanter/Private", "Sukuk", "Råvarer"])
+    with col_m4:
+        manual_sector = st.selectbox("Select Sub-Sector:", TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
         
-        # 2. Hent de konkrete positioner
-        current_holdings = sheets_agent.get_current_holdings_details()
-        print(f"Hentet {len(current_holdings)} konkrete positioner.")
+    if st.button("➕ Add Manual Asset"):
+        if manual_name:
+            virtual_ticker = f"PVT_{manual_name.upper().replace(' ', '_')}"
+            st.session_state.holdings.append({
+                "Company Name": manual_name,
+                "Ticker": virtual_ticker,
+                "Shares": 1,
+                "Category": manual_category,
+                "Sector": manual_sector,
+                "manual_value": manual_value
+            })
+            st.success(f"Added manual asset '{manual_name}' to your portfolio!")
+            time.sleep(1)
+            st.rerun()
+else:
+    # Live søgefelt til almindelige værdipapirer
+    search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'adiddads', 'Novo Nordisk', 'iShares Sukuk'):", "")
+
+    if search_query:
+        # Fuzzy multi-search forslag der løser stavefejl!
+        search_results = search_tickers_by_name_multi(search_query)
         
-        # 3. Hent Watchlist-tickers
-        watchlist_tickers = sheets_agent.get_watchlist_tickers()
-        print(f"Watchlist: {watchlist_tickers}")
+        if search_results:
+            options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
+            selected_option_str = st.selectbox("Select the correct asset from search results:", options_format)
+            
+            selected_idx = options_format.index(selected_option_str)
+            target_asset = search_results[selected_idx]
+            resolved_ticker = target_asset["symbol"]
+            comp_name = target_asset["name"]
+            
+            try:
+                t = yf.Ticker(resolved_ticker)
+                info = t.info
+                sec = info.get("sector", "Other")
+                ind = info.get("industry", "Other")
+                
+                # Map til kategori og delsektor
+                temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
+                cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
+                
+                st.markdown(f"""
+                <div class="found-box">
+                    <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Confirmed Match:</span> {comp_name} ({resolved_ticker})<br>
+                    <span style="color: #334155; font-weight: bold;">Asset Class:</span> {cat} | 
+                    <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_shares, col_add = st.columns([1, 1])
+                with col_shares:
+                    shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
+                with col_add:
+                    st.write(" ")
+                    st.write(" ")
+                    if st.button("➕ Add to Portfolio"):
+                        exists = False
+                        for h in st.session_state.holdings:
+                            if h["Ticker"] == resolved_ticker:
+                                h["Shares"] += shares_to_add
+                                exists = True
+                                break
+                        if not exists:
+                            st.session_state.holdings.append({
+                                "Company Name": comp_name,
+                                "Ticker": resolved_ticker,
+                                "Shares": shares_to_add,
+                                "Category": cat,
+                                "Sector": sub_sec
+                            })
+                        st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
+                        time.sleep(1)
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
+        else:
+            st.warning(f"Could not find any assets matching '{search_query}'. Please try another spelling.")
 
-        # 4. Find den mest undervægtede kasse i din 4x25%-struktur (Tidsbaseret rotation!)
-        pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
-        focus_category, deficit = pm.identify_underweighted_focus()
-        print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
-
-        # 5. PROAKTIV SØGNING: Kombiner personlig Watchlist med vores globale vækst-pool
-        growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
-        combined_candidates = list(set(watchlist_tickers + growth_pool))
-        print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
-
-        # 6. Kør compliance screening (Sharia & Gælds-barrierer)
-        # Vi overfører focus_category til Screener's constructor, så den kan håndtere kontant-proxies dynamisk!
-        print("Screener kandidater mod Sharia- og gældskrav...")
-        screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
-        approved_stocks = screener.run_screening(focus_category)
-        print(f"Godkendte kandidater fundet efter screening: {[s['symbol'] for s in approved_stocks]}")
-
-        target_candidates = approved_stocks[:10]
+st.write("---")
+st.write("### Your Current Portfolio")
+if st.session_state.holdings:
+    holdings_df = pd.DataFrame(st.session_state.holdings)
+    
+    # Vis tabellen som en flot data editor, hvor de kan slette eller ændre rækker
+    edited_holdings = st.data_editor(
+        holdings_df,
+        num_rows="dynamic",
+        column_config={
+            "Company Name": st.column_config.TextColumn("Company Name", disabled=True),
+            "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
+            "Shares": st.column_config.NumberColumn("Shares", min_value=1),
+            "Category": st.column_config.TextColumn("Category", disabled=True),
+            "Sector": st.column_config.TextColumn("Sector", disabled=True),
+            "manual_value": st.column_config.NumberColumn("Manual Value DKK (Only for Cash/Private)", min_value=0)
+        },
+        use_container_width=True,
+        key="holdings_editor"
+    )
+    
+    if not edited_holdings.equals(holdings_df):
+        st.session_state.holdings = edited_holdings.to_dict(orient="records")
+        st.rerun()
         
-        if not target_candidates:
-            error_html = f"<h2>Ingen godkendte kandidater fundet i kategorien {focus_category}</h2>"
-            DeliveryAgent.send_email(f"[LLM Council] Alert - Ingen godkendte kandidater i {focus_category}", error_html)
-            return
+    # Gør det muligt at gemme sine ændringer i Google Sheet databasen!
+    if login_email and "@" in login_email:
+        if st.button("💾 Save Changes to My Profile"):
+            with st.spinner("Saving your portfolio..."):
+                saved = save_user_portfolio_to_db(
+                    email=login_email,
+                    holdings=st.session_state.holdings,
+                    targets=st.session_state.targets,
+                    horizon=st.session_state.horizon,
+                    name=st.session_state.user_name
+                )
+                if saved:
+                    st.success("Successfully saved your profile! Your nightly council runs are now synchronized.")
+                else:
+                    st.error("Failed to save changes. Please try again.")
+else:
+    st.info("Your portfolio is currently empty. Use the search field above to add assets.")
 
-        # 7. Indhent detaljerede yfinance tal
-        print("Indhenter kvartalstal for de 10 godkendte kandidater...")
-        detailed_candidates_data = []
-        for stock in target_candidates:
-            symbol = stock["symbol"]
+# =====================================================================
+#  STEP 3: WATCHLIST (VALGFRI)
+# =====================================================================
+st.subheader("Step 3: Your Watchlist (Optional)")
+st.write("Enter tickers to monitor. If left empty, the system will dynamically screen our global Sharia-growth pool [3].")
+watchlist_input = st.text_input(
+    "Enter Tickers (comma-separated):",
+    "TRMB, SAP, SPSK, AEM, NEM"
+)
+
+watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
+
+# =====================================================================
+#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
+# =====================================================================
+async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon):
+    """
+    Kører hele investerings-motoren asynkront direkte på Streamlits cloud-server.
+    """
+    total_mv = 0.0
+    for item in holdings_list:
+        symbol = item["Ticker"]
+        if "PVT_" in symbol or "CASH_" in symbol:
+            total_mv += float(item.get("manual_value", 1000))
+        else:
             try:
                 t = yf.Ticker(symbol)
-                info = t.info
-                time.sleep(0.5)
-                
-                rev_growth = info.get("revenueGrowth", "N/A")
-                op_margins = info.get("operatingMargins", "N/A")
-                free_cashflow = info.get("freeCashflow", "N/A")
-                
-                detailed_candidates_data.append({
-                    "symbol": symbol,
-                    "name": stock["name"],
-                    "pe_ratio": stock["pe_ratio"],
-                    "debt_ratio": stock["debt_ratio"],
-                    "sector": stock["sector"],
-                    "industry": stock["industry"],
-                    "is_etf": stock.get("is_etf", False),
-                    "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
-                    "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
-                    "free_cash_flow": f"{free_cashflow / 1e6:.2f}M USD/DKK" if isinstance(free_cashflow, (int, float)) else "N/A",
-                    "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
-                    "currency": info.get("currency", "N/A")
-                })
-            except Exception as e:
-                detailed_candidates_data.append(stock)
+                price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                total_mv += (price * float(item["Shares"]))
+            except Exception:
+                total_mv += 1000.0
 
-        # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
-        council_report_html = "<h3>LLM Council fejl</h3>"
-        output_mp3 = "llm_council_podcast.mp3"
-        podcast_compiled = False
-
-        if GEMINI_API_KEY:
-            print("Aktiverer Gemini 3.5 Flash...")
-            current_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
-            current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
-            sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
-            
-            council_agent = CouncilAgent(GEMINI_API_KEY)
-            # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
-            council_report_html = council_agent.run_proactive_analysis(
-                candidates_data=detailed_candidates_data,
-                category=focus_category,
-                deficit=deficit,
-                current_portfolio_str=current_weights_str,
-                current_holdings_str=current_holdings_str,
-                sector_distribution_str=sector_distribution_str,
-                user_name="Wazir",
-                horizon="15+ years"
-            )
-            
-            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter for at undgå fejl på GitHub!)
-            print("Igangsætter Podcastfy-produktion...")
-            podcast_agent = PodcastAgent(GEMINI_API_KEY)
-            generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir") # <-- RETTET HER!
-            
-            if generated_file and os.path.exists(generated_file):
-                try:
-                    import shutil
-                    shutil.copyfile(generated_file, output_mp3)
-                    podcast_compiled = True
-                except Exception as file_err:
-                    print(f"Fejl ved kopiering af lydfil: {str(file_err)}")
-        else:
-            print("Advarsel: GEMINI_API_KEY mangler.")
-
-        # 10. Send HTML-rapport og MP3-podcast til din indbakke
-        subject = f"[LLM Council] Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
-        DeliveryAgent.send_email(
-            subject=subject, 
-            html_content=council_report_html, 
-            attachment_path=output_mp3 if podcast_compiled else None
-        )
-
-    except Exception as e:
-        error_msg = f"Kritisk systemfejl under kørslen:\n\n{traceback.format_exc()}"
-        print(error_msg, file=sys.stderr)
+    portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+    sector_distribution = {}
+    
+    for item in holdings_list:
+        category = item["Category"]
+        subsector = item["Sector"]
+        symbol = item["Ticker"]
         
-        error_html = f"""
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #FCA5A5; background-color: #FEF2F2; border-radius: 8px;">
-            <h2 style="color: #B91C1C; margin-top: 0; border-bottom: 2px solid #FCA5A5; padding-bottom: 10px;">🚨 Systemfejl i LLM Council</h2>
-            <pre style="background-color: #FFFFFF; border: 1px solid #FEE2E2; padding: 15px; border-radius: 5px; overflow-x: auto; color: #991B1B; font-size: 13px;">{error_msg}</pre>
-        </div>
-        """
-        DeliveryAgent.send_email("[System Error] LLM Council failed to run", error_html)
+        if "PVT_" in symbol or "CASH_" in symbol:
+            item_mv = float(item.get("manual_value", 1000))
+        else:
+            try:
+                t = yf.Ticker(symbol)
+                price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                item_mv = (price * float(item["Shares"]))
+            except Exception:
+                item_mv = 1000.0
+                
+        weight_chunk = (item_mv / total_mv * 100.0) if total_mv > 0 else 20.0
+        
+        if category in portfolio_distribution:
+            portfolio_distribution[category] += weight_chunk
+        if subsector not in sector_distribution:
+            sector_distribution[subsector] = 0.0
+            
+        sector_distribution[subsector] += weight_chunk
 
+    pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
+    focus_category, deficit = pm.identify_underweighted_focus()
+    print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
+    
+    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+    combined_candidates = list(set(watchlist + growth_pool))
+    
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+    approved_stocks = screener.run_screening(focus_category)
+    target_candidates = approved_stocks[:10]
+    
+    if not target_candidates:
+        return False, "No compliant assets could be found in your focused category."
 
-if __name__ == "__main__":
-    main()
+    detailed_candidates_data = []
+    for stock in target_candidates:
+        symbol = stock["symbol"]
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            rev_growth = info.get("revenueGrowth", "N/A")
+            op_margins = info.get("operatingMargins", "N/A")
+            free_cashflow = info.get("freeCashflow", "N/A")
+            
+            detailed_candidates_data.append({
+                "symbol": symbol,
+                "name": stock["name"],
+                "pe_ratio": stock["pe_ratio"],
+                "debt_ratio": stock["debt_ratio"],
+                "sector": stock["sector"],
+                "industry": stock["industry"],
+                "is_etf": stock.get("is_etf", False),
+                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
+                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                "currency": info.get("currency", "N/A")
+            })
+        except Exception:
+            detailed_candidates_data.append(stock)
+
+    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
+    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
+    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
+    
+    council_agent = CouncilAgent(GEMINI_API_KEY)
+    report_html = council_agent.run_proactive_analysis(
+        candidates_data=detailed_candidates_data,
+        category=focus_category,
+        deficit=deficit,
+        current_portfolio_str=current_weights_str,
+        current_holdings_str=current_holdings_str,
+        sector_distribution_str=sector_distribution_str,
+        user_name=user_name,
+        horizon=horizon
+    )
+
+    output_mp3 = "llm_council_podcast.mp3"
+    podcast_compiled = False
+    
+    podcast_agent = PodcastAgent(GEMINI_API_KEY)
+    generated_file = podcast_agent.generate_podcast_audio(report_html, user_name)
+    
+    if generated_file and os.path.exists(generated_file):
+        import shutil
+        shutil.copyfile(generated_file, output_mp3)
+        podcast_compiled = True
+
+    os.environ["EMAIL_RECEIVER"] = receiver_email
+    subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+    
+    import llm_council
+    llm_council.EMAIL_RECEIVER = receiver_email
+    
+    DeliveryAgent.send_email(
+        subject=subject,
+        html_content=report_html,
+        attachment_path=output_mp3 if podcast_compiled else None
+    )
+    return True, "Your briefing and audio podcast have been sent to your email!"
+
+# =====================================================================
+#  SAAS START-KNAP
+# =====================================================================
+st.subheader("Step 4: Activate Your Personal Council")
+
+if st.button("🚀 Start My LLM Council & Send First Report"):
+    if not user_email_input or "@" not in user_email_input:
+        st.error("Please enter a valid email address.")
+    elif not st.session_state.holdings:
+        st.error("Please configure at least one active holding.")
+    elif not GEMINI_API_KEY:
+        st.error("SaaS master API key is missing on the server.")
+    else:
+        with st.spinner("Processing your holdings, screening candidates and generating your Bloomberg-style podcast... This takes about 60 seconds."):
+            success, msg = asyncio.run(process_instant_briefing(user_email_input, st.session_state.holdings, watchlist_list, st.session_state.targets, user_name_input, investment_horizon))
+            if success:
+                st.success(f"Boom! {msg}")
+                st.balloons()
+            else:
+                st.error(f"Failed to generate briefing: {msg}")
