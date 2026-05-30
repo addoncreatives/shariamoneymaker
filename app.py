@@ -638,7 +638,7 @@ class PodcastAgent:
 
 
 # =====================================================================
-#  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
+#  DELIVERY AGENT (HTML & VEDHÆFTNINGER SMTP)
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
@@ -725,8 +725,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Initialize session state for active holdings (NU HELT TOM VED OPSTART)
-if "holdings" not in st.session_state:
-    st.session_state.holdings = []
+if "investor_holdings" not in st.session_state:
+    st.session_state.investor_holdings = []
 if "targets" not in st.session_state:
     st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
 if "horizon" not in st.session_state:
@@ -795,7 +795,7 @@ if login_email and "@" in login_email and login_password:
         if res_data.get("status") == "success":
             st.success(f"Loaded profile for {res_data.get('name')}!")
             db_profile = res_data
-            st.session_state.holdings = db_profile.get("holdings")
+            st.session_state.investor_holdings = db_profile.get("holdings")
             st.session_state.targets = db_profile.get("targets")
             st.session_state.horizon = db_profile.get("horizon")
             st.session_state.user_name = db_profile.get("name")
@@ -822,7 +822,7 @@ if is_new_user:
             status = save_user_portfolio_to_db(
                 email=login_email,
                 password=login_password,
-                holdings=st.session_state.holdings,
+                holdings=st.session_state.investor_holdings,
                 targets=st.session_state.targets,
                 horizon=st.session_state.horizon,
                 name=signup_name,
@@ -931,7 +931,7 @@ if not is_new_investor:
         if st.button("➕ Add Manual Asset"):
             if manual_name:
                 virtual_ticker = f"PVT_{manual_name.upper().replace(' ', '_')}"
-                st.session_state.holdings.append({
+                st.session_state.investor_holdings.append({
                     "Company Name": manual_name,
                     "Ticker": virtual_ticker,
                     "Shares": 1,
@@ -942,74 +942,74 @@ if not is_new_investor:
                 st.success(f"Added manual asset '{manual_name}' to your portfolio!")
                 time.sleep(1)
                 st.rerun()
-else:
-    # Sletet eksempler til søgning
-    search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'Adidas', 'Novo Nordisk', 'iShares Sukuk'):", "")
+    else:
+        # Live søgefelt til almindelige værdipapirer (Fejl med indrykning er nu rettet!)
+        search_query = st.text_input("🔍 Search by Company Name or Ticker (e.g., 'Adidas', 'Novo Nordisk', 'iShares Sukuk'):", "")
 
-    if search_query:
-        search_results = search_tickers_by_name_multi(search_query)
-        
-        if search_results:
-            options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
-            selected_option_str = st.selectbox("Select the correct asset from search results:", options_format)
+        if search_query:
+            search_results = search_tickers_by_name_multi(search_query)
             
-            selected_idx = options_format.index(selected_option_str)
-            target_asset = search_results[selected_idx]
-            resolved_ticker = target_asset["symbol"]
-            comp_name = target_asset["name"]
-            
-            try:
-                t = yf.Ticker(resolved_ticker)
-                info = t.info
-                sec = info.get("sector", "Other")
-                ind = info.get("industry", "Other")
+            if search_results:
+                options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
+                selected_option_str = st.selectbox("Select the correct asset from search results:", options_format)
                 
-                temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
-                cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
+                selected_idx = options_format.index(selected_option_str)
+                target_asset = search_results[selected_idx]
+                resolved_ticker = target_asset["symbol"]
+                comp_name = target_asset["name"]
                 
-                display_cat = DB_TO_UI_MAP.get(cat, cat)
-                
-                st.markdown(f"""
-                <div class="found-box">
-                    <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Confirmed Match:</span> {comp_name} ({resolved_ticker})<br>
-                    <span style="color: #334155; font-weight: bold;">Asset Class:</span> {display_cat} | 
-                    <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                col_shares, col_add = st.columns([1, 1])
-                with col_shares:
-                    shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
-                with col_add:
-                    st.write(" ")
-                    st.write(" ")
-                    if st.button("➕ Add to Portfolio"):
-                        exists = False
-                        for h in st.session_state.holdings:
-                            if h["Ticker"] == resolved_ticker:
-                                h["Shares"] += shares_to_add
-                                exists = True
-                                break
-                        if not exists:
-                            st.session_state.holdings.append({
-                                "Company Name": comp_name,
-                                "Ticker": resolved_ticker,
-                                "Shares": shares_to_add,
-                                "Category": cat,
-                                "Sector": sub_sec
-                            })
-                        st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
-                        time.sleep(1)
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
-        else:
-            st.warning(f"Could not find any assets matching '{search_query}'. Please try another spelling.")
+                try:
+                    t = yf.Ticker(resolved_ticker)
+                    info = t.info
+                    sec = info.get("sector", "Other")
+                    ind = info.get("industry", "Other")
+                    
+                    temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
+                    cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
+                    
+                    display_cat = DB_TO_UI_MAP.get(cat, cat)
+                    
+                    st.markdown(f"""
+                    <div class="found-box">
+                        <span style="color: #0F172A; font-weight: bold; font-size: 16px;">🔍 Confirmed Match:</span> {comp_name} ({resolved_ticker})<br>
+                        <span style="color: #334155; font-weight: bold;">Asset Class:</span> {display_cat} | 
+                        <span style="color: #334155; font-weight: bold;">Sector:</span> {sub_sec}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col_shares, col_add = st.columns([1, 1])
+                    with col_shares:
+                        shares_to_add = st.number_input("Shares Owned:", min_value=1, value=10, key="shares_input")
+                    with col_add:
+                        st.write(" ")
+                        st.write(" ")
+                        if st.button("➕ Add to Portfolio"):
+                            exists = False
+                            for h in st.session_state.investor_holdings:
+                                if h["Ticker"] == resolved_ticker:
+                                    h["Shares"] += shares_to_add
+                                    exists = True
+                                    break
+                            if not exists:
+                                st.session_state.investor_holdings.append({
+                                    "Company Name": comp_name,
+                                    "Ticker": resolved_ticker,
+                                    "Shares": shares_to_add,
+                                    "Category": cat,
+                                    "Sector": sub_sec
+                                })
+                            st.success(f"Added {shares_to_add} shares of {comp_name} to your portfolio!")
+                            time.sleep(1)
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Could not load details for '{resolved_ticker}': {str(e)}")
+            else:
+                st.warning(f"Could not find any assets matching '{search_query}'. Please try another spelling.")
 
 st.write("---")
 st.write("### Your Current Portfolio")
-if st.session_state.holdings:
-    holdings_df = pd.DataFrame(st.session_state.holdings)
+if st.session_state.investor_holdings:
+    holdings_df = pd.DataFrame(st.session_state.investor_holdings)
     holdings_df['Category_Display'] = holdings_df['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
     
     edited_holdings = st.data_editor(
@@ -1028,7 +1028,7 @@ if st.session_state.holdings:
     )
     
     if not edited_holdings.equals(holdings_df):
-        st.session_state.holdings = edited_holdings.to_dict(orient="records")
+        st.session_state.investor_holdings = edited_holdings.to_dict(orient="records")
         st.rerun()
         
     if login_email and "@" in login_email and login_password:
@@ -1037,7 +1037,7 @@ if st.session_state.holdings:
                 status = save_user_portfolio_to_db(
                     email=login_email,
                     password=login_password,
-                    holdings=st.session_state.holdings,
+                    holdings=st.session_state.investor_holdings,
                     targets=st.session_state.targets,
                     horizon=st.session_state.horizon,
                     name=st.session_state.user_name,
@@ -1123,6 +1123,7 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         
     print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
+    # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
@@ -1176,7 +1177,7 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         horizon=horizon
     )
 
-    # 1. Automatisk kompilering af dit live-opdaterede Excel-styringsark!
+    # Automatisk kompilering af dit live-opdaterede Excel-styringsark!
     print("Kompilerer dit live-opdaterede Excel-ark...")
     excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist)
 
@@ -1221,7 +1222,7 @@ with col_b1:
     if st.button("🚀 Start My LLM Council & Send First Report"):
         if not user_email_input or "@" not in user_email_input:
             st.error("Please enter a valid email address.")
-        elif not is_new_investor and not st.session_state.holdings:
+        elif not is_new_investor and not st.session_state.investor_holdings:
             st.error("Please configure at least one active holding.")
         elif is_new_investor and not selected_new_sectors:
             st.error("Please select at least one sector you want exposure to.")
@@ -1232,7 +1233,7 @@ with col_b1:
                 # Send alle data afsted til kørslen
                 success, msg = asyncio.run(process_instant_briefing(
                     user_email_input, 
-                    st.session_state.holdings, 
+                    st.session_state.investor_holdings, 
                     watchlist_list, 
                     st.session_state.targets, 
                     user_name_input, 
@@ -1247,8 +1248,8 @@ with col_b1:
                     st.error(f"Failed to generate briefing: {msg}")
 with col_b2:
     # Direkte instant download-knap på skærmen til dit live Excel-ark
-    if st.session_state.holdings:
-        excel_bytes = generate_excel_template_bytes(st.session_state.holdings, watchlist_list)
+    if st.session_state.investor_holdings:
+        excel_bytes = generate_excel_template_bytes(st.session_state.investor_holdings, watchlist_list)
         st.download_button(
             label="📥 Download My Excel Sheet",
             data=excel_bytes,
