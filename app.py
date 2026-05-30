@@ -124,6 +124,17 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
+# HYBRID AUTOMATISK DATABASE-INDLÆSNING (Opdaterer med din failsafe_db.json)
+failsafe_db = STATIC_TICKER_MAP.copy()
+if os.path.exists("failsafe_db.json"):
+    try:
+        with open("failsafe_db.json", "r") as f:
+            loaded_db = json.load(f)
+            failsafe_db.update(loaded_db)
+            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
+    except Exception as e:
+        print(f"Advarsel under indlæsning af failsafe_db.json: {str(e)}")
+
 # GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
     "Aktier": [
@@ -202,6 +213,35 @@ def search_tickers_by_name_multi(query: str) -> list:
 
 
 # =====================================================================
+#  FEJLSIKRET KATEGORI OG SEKTOR OPFØLGNING (DYNAMISK + STATISK)
+# =====================================================================
+def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -> tuple:
+    """
+    Tjekker altid det udvidede og indlæste failsafe kartotek først for at omgå yfinance [3].
+    """
+    sym = str(ticker).upper().strip()
+    lookup_sym = sym.split('.')[0]
+    
+    for k, v in failsafe_db.items():
+        if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
+            if v[0] == "Sukuk" and target_category == "Kontanter/Private":
+                return "Kontanter/Private", "Sukuk & Fixed Income"
+            return v[0], v[1]
+            
+    try:
+        t = yf.Ticker(sym)
+        info = t.info
+        sec = info.get("sector", "Other")
+        ind = info.get("industry", "Other")
+        
+        temp_screener = ScreenerComplianceAgent([], target_category=target_category)
+        cat, sub_sec = temp_screener.map_to_category_and_sector(sym, sec, ind)
+        return cat, sub_sec
+    except Exception:
+        return "Aktier", "Other"
+
+
+# =====================================================================
 #  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
 # =====================================================================
 def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
@@ -266,33 +306,6 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
 
 
 # =====================================================================
-#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION)
-# =====================================================================
-class PortfolioManagerAgent:
-    def __init__(self, current: dict, target: dict):
-        self.current = current
-        self.target = target
-
-    def identify_underweighted_focus(self) -> tuple:
-        underweight_candidates = []
-        for category, target_val in self.target.items():
-            curr_val = self.current.get(category, 0.0)
-            deficit = target_val - curr_val
-            if deficit > 0.0:
-                underweight_candidates.append((category, deficit))
-        
-        if not underweight_candidates:
-            return list(self.target.keys())[0], 0.0
-
-        underweight_candidates.sort(key=lambda x: x[0])
-        day_of_year = datetime.datetime.now().timetuple().tm_yday
-        index = day_of_year % len(underweight_candidates)
-        
-        focus_category, deficit = underweight_candidates[index]
-        return focus_category, deficit
-
-
-# =====================================================================
 #  SCREENER & COMPLIANCE AGENT (DYNAMISK SØGNING)
 # =====================================================================
 class ScreenerComplianceAgent:
@@ -312,7 +325,7 @@ class ScreenerComplianceAgent:
         
         url = f"https://zoya.finance/stocks/{clean_symbol}"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0'
         }
         try:
             response = requests.get(url, headers=headers, timeout=8)
@@ -333,7 +346,7 @@ class ScreenerComplianceAgent:
 
         # 1. Tjek altid det lynhurtige statiske kartotek først
         lookup_sym = sym.split('.')[0]
-        for k, v in STATIC_TICKER_MAP.items():
+        for k, v in failsafe_db.items():
             if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
                 if v[0] == "Sukuk" and self.target_category == "Kontanter/Private":
                     return "Kontanter/Private", "Sukuk & Fixed Income"
@@ -959,13 +972,8 @@ if not is_new_investor:
                 comp_name = target_asset["name"]
                 
                 try:
-                    t = yf.Ticker(resolved_ticker)
-                    info = t.info
-                    sec = info.get("sector", "Other")
-                    ind = info.get("industry", "Other")
-                    
-                    temp_screener = ScreenerComplianceAgent([], target_category=st.session_state.targets)
-                    cat, sub_sec = temp_screener.map_to_category_and_sector(resolved_ticker, sec, ind)
+                    # Finder kategori og delsektor med det fejlsikre kartotek
+                    cat, sub_sec = get_category_and_sector_failsafe(resolved_ticker, target_category=st.session_state.targets)
                     
                     display_cat = DB_TO_UI_MAP.get(cat, cat)
                     
