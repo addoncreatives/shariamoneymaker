@@ -823,17 +823,15 @@ class PodcastAgent:
             )
         }
         
-        try:
-            print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS...")
-            audio_path = generate_podcast(
-                text=report_html,
-                tts_model="edge",
-                conversation_config=custom_config
-            )
-            return audio_path
-        except Exception as e:
-            print(f"Fejl under Podcastfy-generering: {str(e)}")
-            return None
+        # Den uheldige interne try-except blok er nu FULDSTÆNDIG slettet [3]!
+        # Hvis Podcastfy fejler, vil fejlen boble direkte op til main() og blive sendt i din mail [3].
+        print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS...")
+        audio_path = generate_podcast(
+            text=report_html,
+            tts_model="edge",
+            conversation_config=custom_config
+        )
+        return audio_path
 
 
 # =====================================================================
@@ -990,6 +988,7 @@ def main():
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             try:
+                # Nu risikerer vi ikke at fejlen skjules [3]!
                 generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir")
                 if generated_file and os.path.exists(generated_file):
                     import shutil
@@ -998,7 +997,7 @@ def main():
                 else:
                     podcast_error_section = "<p style='color:red;'>⚠️ <strong>Podcast Warning:</strong> Podcastfy did not generate an MP3 file.</p>"
             except Exception as e:
-                # Fang den rå, præcise fejl-log og forbered den til din indbakke!
+                # Hvis genereringen crasher, fanges fejlloggen her og sendes direkte til din mail [3]!
                 err_tb = traceback.format_exc()
                 podcast_error_section = f"""
                 <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 35px; margin-bottom: 20px;">
@@ -1012,6 +1011,7 @@ def main():
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
 
+        # Hvis genereringen fejlede, klistrer vi fejlloggen direkte ind i bunden af e-mailen!
         if podcast_error_section:
             council_report_html += podcast_error_section
 
