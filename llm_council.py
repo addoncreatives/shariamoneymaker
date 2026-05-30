@@ -127,25 +127,6 @@ if os.path.exists("failsafe_db.json"):
     except Exception as e:
         print(f"Warning: Could not load failsafe_db.json: {str(e)}")
 
-# GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
-GLOBAL_COMPLIANT_GROWTH_POOL = {
-    "Aktier": [
-        "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
-        "TRMB", "SAP", "IFX.DE", "MSFT", "ASML", "NVDA", "ADBE", "CRM", "SNPS", 
-        "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
-        "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO"
-    ],
-    "Sukuk": [
-        "SPSK", "SKUK"
-    ],
-    "Råvarer": [
-        "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
-    ],
-    "Kontanter/Private": [
-        "SPSK", "SKUK"
-    ]
-}
-
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1EnE2XkQySaGsdaxR5KySZZ924LT66ICo")
 DATABASE_URL = os.getenv("DATABASE_URL")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -837,7 +818,7 @@ class PodcastAgent:
 
 
 # =====================================================================
-#  DELIVERY AGENT (HTML & VEDHÆFTNINGER SMTP)
+#  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
 # =====================================================================
 class DeliveryAgent:
     @staticmethod
@@ -887,14 +868,14 @@ class DeliveryAgent:
 
 
 # =====================================================================
-#  ORCHESTRATOR / SYSTEM FLOW (HER ANVENDES NU DET RETTEDE KARTOTEK)
+#  ORCHESTRATOR / SYSTEM FLOW (MED DYNAMISK FEJL-RAPPORT TIL DIN MAIL)
 # =====================================================================
 def main():
     try:
         print("Opstarter LLM Council 4x25% med delsektorer og Podcastfy...")
         sheets_agent = GoogleSheetsAgent(GOOGLE_SHEET_ID)
         
-        # 1. Hent investors aktuelle vægte samt de 21 delsektorer (Opdateret med hybrid-database)
+        # 1. Hent investors aktuelle vægte samt de 21 delsektorer
         current_portfolio_weights, sector_distribution = sheets_agent.get_current_weights_and_sectors()
         print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
         print(f"Beregnet delsektor-fordeling: {sector_distribution}")
@@ -907,7 +888,7 @@ def main():
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
         print(f"Watchlist: {watchlist_tickers}")
 
-        # 4. Find den mest undervægtede kasse i din 4x25%-struktur (Tidsbaseret rotation!)
+        # 4. Find den mest undervægtede kasse (Tidsbaseret rotation!)
         pm = PortfolioManagerAgent(current_portfolio_weights, TARGET_PORTFOLIO)
         focus_category, deficit = pm.identify_underweighted_focus()
         print(f"Nattens strategiske fokus: {focus_category} (Underskud: {deficit:.2f}%)")
@@ -917,7 +898,7 @@ def main():
         combined_candidates = list(set(watchlist_tickers + growth_pool))
         print(f"Kombineret søgebase ({len(combined_candidates)} aktiver): {combined_candidates}")
 
-        # 6. Kør compliance screening (Sharia & Gælds-barrierer)
+        # 6. Kør compliance screening
         print("Screener kandidater mod Sharia- og gældskrav...")
         screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
         approved_stocks = screener.run_screening(focus_category)
@@ -926,8 +907,8 @@ def main():
         target_candidates = approved_stocks[:10]
         
         if not target_candidates:
-            error_html = f"<h2>Ingen godkendte kandidater fundet i kategorien {focus_category}</h2>"
-            DeliveryAgent.send_email(f"[LLM Council] Alert - Ingen godkendte kandidater i {focus_category}", error_html)
+            error_html = f"<h2>No compliant assets could be found in your focused category ({focus_category}) today.</h2>"
+            DeliveryAgent.send_email(f"[LLM Council] Alert - No candidates approved", error_html)
             return
 
         # 7. Indhent detaljerede yfinance tal
@@ -962,9 +943,10 @@ def main():
                 detailed_candidates_data.append(stock)
 
         # 8. Aktiver Gemini 3.5 Flash til den proaktive HTML-rapport
-        council_report_html = "<h3>LLM Council fejl</h3>"
+        council_report_html = "<h3>LLM Council Error</h3>"
         output_mp3 = "llm_council_podcast.mp3"
         podcast_compiled = False
+        podcast_error_section = "" # Denne sektion vil indeholde fejl-loggen direkte i din mail, hvis den fejler!
 
         if GEMINI_API_KEY:
             print("Aktiverer Gemini 3.5 Flash...")
@@ -973,7 +955,6 @@ def main():
             sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
             
             council_agent = CouncilAgent(GEMINI_API_KEY)
-            # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
             council_report_html = council_agent.run_proactive_analysis(
                 candidates_data=detailed_candidates_data,
                 category=focus_category,
@@ -985,27 +966,42 @@ def main():
                 horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
+            # 9. Generer automatisk lyd-podcast via det avancerede Podcastfy
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
-            generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir")
-            
-            if generated_file and os.path.exists(generated_file):
-                try:
+            try:
+                generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir")
+                if generated_file and os.path.exists(generated_file):
                     import shutil
                     shutil.copyfile(generated_file, output_mp3)
                     podcast_compiled = True
-                except Exception as file_err:
-                    print(f"Fejl ved kopiering af lydfil: {str(file_err)}")
+                else:
+                    podcast_error_section = "<p style='color:red;'>⚠️ <strong>Podcast Warning:</strong> Podcastfy did not generate an MP3 file.</p>"
+            except Exception as e:
+                # Fang den rå, præcise fejl-log og forbered den til din indbakke!
+                err_tb = traceback.format_exc()
+                podcast_error_section = f"""
+                <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 35px; margin-bottom: 20px;">
+                    <h4 style="color: #991B1B; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Podcast Generation Failed (GitHub Runner)</h4>
+                    <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+                        The high-energy audio podcast could not be compiled on the GitHub Actions runner. Find the detailed diagnostic logs below to resolve the issue:
+                    </p>
+                    <pre style="background-color: #FFFFFF; border: 1px solid #FEE2E2; padding: 15px; border-radius: 5px; overflow-x: auto; color: #991B1B; font-size: 12px; line-height: 1.4;">{err_tb}</pre>
+                </div>
+                """
         else:
             print("Advarsel: GEMINI_API_KEY mangler.")
+
+        # Hvis genereringen fejlede, klistrer vi fejlloggen direkte ind i bunden af e-mailen!
+        if podcast_error_section:
+            council_report_html += podcast_error_section
 
         # Klargør begge vedhæftninger til din natlige mail!
         attachments_list = []
         if podcast_compiled:
             attachments_list.append({"path": output_mp3, "name": "Wazir_LLM_Council_Podcast.mp3"})
             
-        # Generer dit live-formel Excel-ark til din natlige mail (OPDATERET: tilføjet til dit natlige script!)
+        # Generer dit live-formel Excel-ark til din natlige mail
         excel_raw_bytes = generate_excel_template_bytes(current_holdings, watchlist_tickers)
         attachments_list.append({"data": excel_raw_bytes, "name": "Wazir_Live_Portfolio_Template.xlsx"})
 
