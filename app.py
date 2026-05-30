@@ -13,19 +13,6 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 
-# --- Indsæt dette øverst i din app.py, efter imports ---
-# Den henter automatisk databasen fra dit GitHub arkiv live
-@st.cache_data
-def load_global_db():
-    url = "https://raw.githubusercontent.com/addoncreatives/shariamoneymaker/main/failsafe_db.json"
-    try:
-        response = requests.get(url, timeout=10)
-        return response.json()
-    except:
-        return STATIC_TICKER_MAP # Fallback til det indbyggede kartotek
-
-failsafe_db = load_global_db()
-
 # ---------------------------------------------------------------------
 #  SAFETY NET: Automatic installation of openpyxl if missing
 # ---------------------------------------------------------------------
@@ -64,7 +51,7 @@ DISPLAY_CATEGORIES = {
     "Kontanter/Private": "Cash / Private Sector"
 }
 
-# Lydløs tovejs-oversætter, som oversætter de engelske UI-værdier til dit Google Sheet
+# Silent two-way translator between UI categories and Google Sheets
 UI_TO_DB_MAP = {
     "Equities": "Aktier",
     "Sukuk": "Sukuk",
@@ -137,16 +124,28 @@ STATIC_TICKER_MAP = {
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
-# HYBRID AUTOMATISK DATABASE-INDLÆSNING (Opdaterer med din failsafe_db.json)
-failsafe_db = STATIC_TICKER_MAP.copy()
-if os.path.exists("failsafe_db.json"):
+# HYBRID AUTOMATISK DATABASE-INDLÆSNING FRA DIN GITHUB
+@st.cache_data
+def load_global_db_from_github():
+    """
+    Downloads your entire failsafe_db.json from GitHub automatically
+    and caches it for lightning-fast performance (0 ms) without API issues.
+    """
+    url = "https://raw.githubusercontent.com/addoncreatives/shariamoneymaker/main/failsafe_db.json"
     try:
-        with open("failsafe_db.json", "r") as f:
-            loaded_db = json.load(f)
-            failsafe_db.update(loaded_db)
-            print(f"Loaded {len(loaded_db)} tickers from failsafe_db.json successfully!")
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            loaded_db = response.json()
+            # Merge with our local hardcoded fallback dictionary
+            merged_db = STATIC_TICKER_MAP.copy()
+            merged_db.update(loaded_db)
+            print(f"SaaS Database Engine: Successfully loaded {len(merged_db)} tickers.")
+            return merged_db
     except Exception as e:
-        print(f"Advarsel under indlæsning af failsafe_db.json: {str(e)}")
+        print(f"Warning: Could not fetch failsafe_db.json from GitHub: {str(e)}")
+    return STATIC_TICKER_MAP
+
+failsafe_db = load_global_db_from_github()
 
 # GLOBAL ISLAMIC GROWTH UNIVERSE (Anvendes proaktivt)
 GLOBAL_COMPLIANT_GROWTH_POOL = {
@@ -226,35 +225,6 @@ def search_tickers_by_name_multi(query: str) -> list:
 
 
 # =====================================================================
-#  FEJLSIKRET KATEGORI OG SEKTOR OPFØLGNING (DYNAMISK + STATISK)
-# =====================================================================
-def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -> tuple:
-    """
-    Tjekker altid det udvidede og indlæste failsafe kartotek først for at omgå yfinance [3].
-    """
-    sym = str(ticker).upper().strip()
-    lookup_sym = sym.split('.')[0]
-    
-    for k, v in failsafe_db.items():
-        if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
-            if v[0] == "Sukuk" and target_category == "Kontanter/Private":
-                return "Kontanter/Private", "Sukuk & Fixed Income"
-            return v[0], v[1]
-            
-    try:
-        t = yf.Ticker(sym)
-        info = t.info
-        sec = info.get("sector", "Other")
-        ind = info.get("industry", "Other")
-        
-        temp_screener = ScreenerComplianceAgent([], target_category=target_category)
-        cat, sub_sec = temp_screener.map_to_category_and_sector(sym, sec, ind)
-        return cat, sub_sec
-    except Exception:
-        return "Aktier", "Other"
-
-
-# =====================================================================
 #  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
 # =====================================================================
 def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
@@ -316,6 +286,61 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
     wb.save(excel_data)
     excel_data.seek(0)
     return excel_data.getvalue()
+
+
+# =====================================================================
+#  FEJLSIKRET KATEGORI OG SEKTOR OPFØLGNING (DYNAMISK + STATISK)
+# =====================================================================
+def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -> tuple:
+    sym = str(ticker).upper().strip()
+    lookup_sym = sym.split('.')[0]
+    
+    # 1. Tjek mod dit indlæste globale failsafe-kartotek
+    for k, v in failsafe_db.items():
+        if normalize_string(k) == normalize_string(sym) or normalize_string(k) == normalize_string(lookup_sym):
+            if v[0] == "Sukuk" and target_category == "Kontanter/Private":
+                return "Kontanter/Private", "Sukuk & Fixed Income"
+            return v[0], v[1]
+            
+    # 2. Hvis ukendt, prøv yfinance (med fejlsikret fallback ved blokering)
+    try:
+        t = yf.Ticker(sym)
+        info = t.info
+        sec = info.get("sector", "Other")
+        ind = info.get("industry", "Other")
+        
+        temp_screener = ScreenerComplianceAgent([], target_category=target_category)
+        cat, sub_sec = temp_screener.map_to_category_and_sector(sym, sec, ind)
+        return cat, sub_sec
+    except Exception:
+        return "Aktier", "Other"
+
+
+# =====================================================================
+#  PORTFOLIO MANAGER AGENT (STATELÆS ROTATION)
+# =====================================================================
+class PortfolioManagerAgent:
+    def __init__(self, current: dict, target: dict):
+        self.current = current
+        self.target = target
+
+    def identify_underweighted_focus(self) -> tuple:
+        underweight_candidates = []
+        for category, target_val in self.target.items():
+            curr_val = self.current.get(category, 0.0)
+            deficit = target_val - curr_val
+            if deficit > 0.0:
+                underweight_candidates.append((category, deficit))
+        
+        if not underweight_candidates:
+            return list(self.target.keys())[0], 0.0
+
+        underweight_candidates.sort(key=lambda x: x[0])
+        day_of_year = datetime.datetime.now().timetuple().tm_yday
+        index = day_of_year % len(underweight_candidates)
+        
+        focus_category, deficit = underweight_candidates[index]
+        return focus_category, deficit
 
 
 # =====================================================================
@@ -1144,7 +1169,6 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
         
     print(f"Nattens fokus: {focus_category} (Gab: {deficit:.2f}%)")
     
-    # 3. Proaktiv søgning
     growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
     combined_candidates = list(set(watchlist + growth_pool))
     
