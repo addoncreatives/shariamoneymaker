@@ -800,7 +800,7 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  PODCAST AGENT (PODCASTFY POWERED HIGH-ENERGY CNBC/BLOOMBERG TALKSHOW)
+#  PODCAST AGENT (THE INVESTOR'S JOURNEY — STORYTELLING & MECHATRENDS)
 # =====================================================================
 class PodcastAgent:
     def __init__(self, api_key: str):
@@ -812,40 +812,47 @@ class PodcastAgent:
     def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
+        # Din Universal Master Prompt med instruktioner om udelukkende at generere på engelsk
+        user_instructions_content = (
+            f"You are a star producer creating a highly educational, engaging, and professional financial podcast series in English. "
+            f"The target audience is new investors who need guidance to understand market logic, risk management, and long-term megatrends. "
+            f"The show uses our specific investor {user_name}'s live portfolio as an ongoing real-world case study to show how a portfolio matures over time.\n\n"
+            f"CRITICAL CONTENT GUIDELINES (Storytelling > Numbers):\n"
+            f"1. Minimize Number Noise: Avoid listing percentages, exact P/E ratios, or decimals. Use terms like 'a solid overweight', 'a small gap to close', or 'a reasonable price relative to earnings'.\n"
+            f"2. Focus on Megatrends & Macro: Zoom out. Explain which global growth themes and structural shifts (e.g., green transition, commodity scarcity, technological leaps) these companies represent.\n"
+            f"3. Educational Element: Every episode must teach the listener a basic financial concept (e.g., What is operational gearing? Why do commodities behave differently than equities? What does rebalancing mean?).\n\n"
+            f"EPISODE FORMAT / SHOW FLOW (You MUST strictly follow this 5-segment structure):\n"
+            f"- Segment 1: The Global Macro-Pulse (Current events & Megatrends). High-energy opening. Sarah and Mark discuss a major global news topic (e.g., supply chains, raw materials, central banks) and explain the macroeconomic wave it triggers.\n"
+            f"- Segment 2: The Journey Check-In (Where is the investor in their life cycle?). Check-in on the investor's current portfolio phase (e.g., startup phase, rebalancing phase, defensive hedging). Explain why this phase is a classic textbook challenge and teach the theory behind it.\n"
+            f"- Segment 3: The Deep-Dive Pitch (The growth case). Pitch 2-3 Sharia-compliant companies riding this macro wave. Focus on their story, pipeline, and 3-year growth potential instead of financial tables.\n"
+            f"- Segment 4: The LLM Council Arena (The clash of perspectives). The hosts bring in our 5 resident advisors for a heated debate about the pitched companies. The advisors MUST loudly disagree, interrupt each other, and challenge assumptions in English:\n"
+            f"  * Contrarian: Demolishes the hype, warns against buying at the top, points out major risks.\n"
+            f"  * Expansionist: Thrilled about growth, pipeline potential, long-term upside.\n"
+            f"  * Outsider: Challenges the logic, suggests alternative ways to capture the trend.\n"
+            f"  * First-Principles: Anchors the discussion in Shariah-debt rules and overall portfolio balance.\n"
+            f"  * Executor: Evaluates if these are practical/safe to trade on Saxo Bank.\n"
+            f"- Segment 5: The Masterclass Verdict (Today's lesson & Action plan). Sarah and Mark wrap up the debate, summarize the Chairman's final advisory recommendation as an 'Investor Masterclass' lesson, and end with an actionable, step-by-step next step for {user_name}'s Saxo Investor account."
+        )
+
         custom_config = {
-            "word_count": 900,
-            "conversation_style": ["engaging", "fast-paced", "enthusiastic", "hardcore Bloomberg debate"],
+            "word_count": 1200,
+            "conversation_style": ["educational", "highly engaging", "fast-paced", "storytelling", "dramatic debate"],
             "roles_person1": "Sarah, the curious financial journalist",
             "roles_person2": "Mark, the hardcore market analyst",
-            "podcast_name": "LLM Council Briefing",
-            "podcast_tagline": "CNBC & Bloomberg Style Financial Talkshow",
-            "output_language": "English",
-            "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk"],
-            "user_instructions": (
-                f"Create a high-energy Bloomberg-style financial show moderated by Sarah and Mark. "
-                f"The show MUST open with Sarah and Mark introducing themselves and welcoming our VIP client, {user_name}. "
-                f"Then, they introduce and interview our 5 resident advisers: "
-                f"Contrarian (the risk-obsessed skeptic who must interrupt with: 'But what if the market turns tomorrow?'), "
-                f"First-Principles (the logical mathematician using raw numbers), "
-                f"Expansionist (the highly bullish growth hunter wanting to deploy capital), "
-                f"Outsider (the big-picture strategist analyzing indirect exposures like NKT/FLS and favoring royalty models), "
-                f"and Executor (the pragmatic guy checking Saxo tradeability and Dollar-Cost Averaging). "
-                f"The show must conclude with Sarah and Mark summarizing the Chairman's final recommendation and "
-                f"giving {user_name} a highly clear, actionable next step for his Saxo account."
-            )
+            "podcast_name": "The Investor's Journey",
+            "podcast_tagline": "Your money, your journey, your Shariah-compliant future",
+            "output_language": "English",  # Ændret til engelsk
+            "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk", "interruption"],
+            "user_instructions": user_instructions_content
         }
         
-        # Den uheldige interne try-except blok er nu FULDSTÆNDIG slettet [3]!
-        # Hvis Podcastfy fejler, vil fejlen boble direkte op til main() og blive sendt i din mail [3].
-        print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS...")
+        print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS på engelsk...")
         audio_path = generate_podcast(
             text=report_html,
             tts_model="edge",
             conversation_config=custom_config
         )
         return audio_path
-
-
 # =====================================================================
 #  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
 # =====================================================================
