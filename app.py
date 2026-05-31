@@ -42,25 +42,21 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 # Page config
-st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳️", layout="centered")
+st.set_page_config(page_title="Mizan Finance - Conscious Wealth", page_icon="⚖️", layout="centered")
 
 
 # =====================================================================
 #  HTML & BILINGUAL TRANSLATION HELPERS
 # =====================================================================
 def render_html(html_str: str):
-    """
-    Renser HTML-strengen for linjeskift og indrykninger, så Streamlits
-    Markdown-parser aldrig forveksler HTML med en rå kode blok.
-    """
     clean_html = "".join([line.strip() for line in html_str.splitlines()])
     st.markdown(clean_html, unsafe_allow_html=True)
 
 
-# Sprogvælger placeret øverst til højre med understøttelse af 5 sprog
+# Language selector (Danish, Swedish, Norwegian, Finnish, English)
 col_title, col_lang = st.columns([2, 1])
 with col_title:
-    st.title("🗳️ LLM Council")
+    st.title("⚖️ Mizan Finance")
 with col_lang:
     if "lang" not in st.session_state:
         st.session_state.lang = "Dansk"
@@ -72,7 +68,6 @@ with col_lang:
     )
 
 def _t(da: str, sv: str, no: str, fi: str, en: str) -> str:
-    """Hjælpefunktion til live-oversættelse af UI-tekster på tværs af 5 sprog (Rettet sv/no!)."""
     lang = st.session_state.lang
     if lang == "Dansk": return da
     elif lang == "Svenska": return sv
@@ -89,21 +84,21 @@ DISPLAY_CATEGORIES = {
     "Aktier": "Equities",
     "Sukuk": "Sukuk (Islamic Bonds)",
     "Råvarer": "Commodities",
-    "Kontanter/Private": "Cash / Private Sector"
+    "Kontanter/Private": "Cash / Private Equity"
 }
 
 UI_TO_DB_MAP = {
     "Equities": "Aktier",
     "Sukuk": "Sukuk",
     "Commodities": "Råvarer",
-    "Cash/Private": "Kontanter/Private"
+    "Cash/Private Equity": "Kontanter/Private"
 }
 
 DB_TO_UI_MAP = {
     "Aktier": "Equities",
     "Sukuk": "Sukuk",
     "Råvarer": "Commodities",
-    "Kontanter/Private": "Cash/Private"
+    "Kontanter/Private": "Cash/Private Equity"
 }
 
 TARGET_SUBSECTORS = [
@@ -172,8 +167,8 @@ def load_global_db_from_github():
             merged_db = STATIC_TICKER_MAP.copy()
             merged_db.update(loaded_db)
             return merged_db
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Could not fetch failsafe_db.json from GitHub: {str(e)}")
     return STATIC_TICKER_MAP
 
 failsafe_db = load_global_db_from_github()
@@ -311,7 +306,7 @@ def calculate_passive_rebalancing_distribution(holdings_list: list, target_alloc
 
 
 # =====================================================================
-#  HTML DEBATE PARSER (OVERSAT TIL SWOT HOVEDKASSER)
+#  HTML DEBATE PARSER
 # =====================================================================
 def parse_debate_and_chairman(html_content: str) -> dict:
     results = {
@@ -464,7 +459,7 @@ def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -
 
 
 # =====================================================================
-#  SÆRLIG SCREENING & AGENTER
+#  SÆRLIG SCREENING & AGENTER (MUSAFFA & AAOIFI STANDARDER!)
 # =====================================================================
 class PortfolioManagerAgent:
     def __init__(self, current: dict, target: dict):
@@ -954,6 +949,8 @@ if "frequency" not in st.session_state:
     st.session_state.frequency = "Weekly"
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+if "user_password" not in st.session_state:
+    st.session_state.user_password = ""
 if "is_logged_in" not in st.session_state:
     st.session_state.is_logged_in = False
 if "is_new_investor" not in st.session_state:
@@ -1010,7 +1007,7 @@ st.caption(_t(
 ))
 
 
-# --- TRIN 1: VELKOMST & KORT KONTEKST (SAAS DASHBOARD FOR LOGGET-IND BRUGER) ---
+# --- TRIN 1: VELKOMST & KORT KONTEKST ---
 if st.session_state.step == 1:
     if st.session_state.is_logged_in:
         # PERSONLIGT DASHBOARD FOR EKSISTERENDE BRUGERE
@@ -1092,11 +1089,11 @@ if st.session_state.step == 1:
         st.subheader(_t("Hurtige handlinger", "Snabbval", "Hurtige handlinger", "Pika-asennot", "Quick Actions"))
         col_act1, col_act2 = st.columns(2)
         with col_act1:
-            if st.button("⚙️ " + _t("Rediger portefølje & mål", "Redigera portfölj & mål", "Rediger portefølje & mål", "Muokkaa salkkua & tavoitteita", "Edit Portfolio & Targets"), use_container_width=True):
+            if st.button("⚙️ " + _t("Rediger portefølje & mål", "Redigera portfölj & mål", "Rediger portefølje & mål", "Muokkaa salkkua & tavoitteita", "Edit Portfolio & Targets"), use_container_width=True, key="home_edit_port_btn"):
                 st.session_state.step = 3
                 st.rerun()
         with col_act2:
-            if st.button("🗳️ " + _t("Generer ny LLM-rapport", "Generera ny LLM-rapport", "Generer ny LLM-rapport", "Luo uusi LLM-raportti", "Generate New Briefing"), use_container_width=True):
+            if st.button("🗳️ " + _t("Generer ny LLM-rapport", "Generera ny LLM-rapport", "Generer ny LLM-rapport", "Luo uusi LLM-raportti", "Generate New Briefing"), use_container_width=True, key="home_run_briefing_btn"):
                 st.session_state.step = 5
                 st.rerun()
 
@@ -1121,21 +1118,22 @@ if st.session_state.step == 1:
             st.write(" ")
             st.write(" ")
             # Knap til at hente alternative selskaber inden for samme sektor (Ignore-liste aktiveres)
-            if st.button("🔄 " + _t("Udforsk alternativer", "Utforska alternativ", "Utforsk alternativer", "Etsi vaihtoehtoja", "Explore Alternatives"), use_container_width=True):
-                if st.session_state.last_sector_prospects_list:
+            # RETTET: Vises nu KUN hvis der allerede har været kørt en søgning!
+            if st.session_state.last_sector_prospects_list:
+                if st.button("🔄 " + _t("Udforsk alternativer", "Utforska alternativ", "Utforsk alternativer", "Etsi vaihtoehtoja", "Explore Alternatives"), use_container_width=True, key="home_explore_alternatives_btn"):
                     for p in st.session_state.last_sector_prospects_list:
                         st.session_state.prospect_ignore_list.append(p.get("symbol", "").upper())
-                with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Söker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
-                    prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list)
-                    prospects_parsed = extract_json_array(prospect_json)
-                    if prospects_parsed:
-                        st.session_state.last_sector_prospects_list = prospects_parsed
-                        st.session_state.last_research_sector_name = selected_research_sector
-                        st.success(_t("Nye prospects klar!", "Nya prospekt redo!", "Nye prospekter klare!", "Uusia kohteita valmiina!", "New prospects ready!"))
-                        time.sleep(1)
-                        st.rerun()
+                    with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Søker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
+                        prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list)
+                        prospects_parsed = extract_json_array(prospect_json)
+                        if prospects_parsed:
+                            st.session_state.last_sector_prospects_list = prospects_parsed
+                            st.session_state.last_research_sector_name = selected_research_sector
+                            st.success(_t("Nye prospects klar!", "Nya prospekt redo!", "Nye prospekter klare!", "Uusia kohteita valmiina!", "New prospects ready!"))
+                            time.sleep(1)
+                            st.rerun()
 
-        if st.button("🚀 " + _t("Engager rådgivere", "Engagera rådgivare", "Engasjer rådgivere", "Käynnistä neuvonantajat", "Engage Advisors"), use_container_width=True):
+        if st.button("🚀 " + _t("Engager rådgivere", "Engagera rådgivare", "Engasjer rådgivere", "Käynnistä neuvonantajat", "Engage Advisors"), use_container_width=True, key="home_engage_advisors_btn"):
             st.session_state.prospect_ignore_list = []
             with st.spinner(_t("Rådgiverne analyserer sektoren og danner selskabs-prospekter...", "Rådgivarna analyserar sektorn och genererar prospekt...", "Rådgiverne analyserer sektoren og genererer prospekter...", "Neuvonantajat analysoivat sektoria ja luovat kohteita...", "The advisors are analyzing the sector and compiling investment cases...")):
                 prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, [])
@@ -1221,17 +1219,30 @@ if st.session_state.step == 1:
             "Since you cannot buy broad US ETFs due to KID restrictions, enter a conventional ETF ticker (e.g., SPY or QQQ) below. Our AI 'peels' the ETF, purges non-compliant stocks, and presents Shariah-approved single stocks you can trade freely."
         ))
         
+        # Integreret inspirationsvælger for at undgå at skulle huske rå tickere
+        etf_templates = {
+            _t("Vælg ETF fra inspirations-liste...", "Välj ETF...", "Velg ETF...", "Valitse ETF...", "Select conventional ETF template..."): "",
+            "S&P 500 (SPDR S&P 500 ETF - SPY)": "SPY",
+            "US Tech 100 (Invesco QQQ Trust - QQQ)": "QQQ",
+            "Global Equities (iShares MSCI World ETF - URTH)": "URTH",
+            "Global Clean Energy (iShares Clean Energy - ICLN)": "ICLN",
+            "Emerging Markets (iShares Emerging Markets - EEM)": "EEM"
+        }
+        selected_etf_template = st.selectbox(_t("Hent inspiration fra populære ETF'er:", "Hämta inspiration...", "Hent inspirasjon...", "Hae inspiraatiota...", "Get inspiration from popular ETFs:"), list(etf_templates.keys()))
+        etf_placeholder_value = etf_templates[selected_etf_template] if etf_templates[selected_etf_template] != "" else "SPY"
+
         col_peel_t, col_peel_n = st.columns([2, 1])
         with col_peel_t:
-            peel_ticker = st.text_input(_t("Indtast konventionel ETF-ticker (f.eks. 'SPY', 'QQQ', 'MSCI'):", "Ange vanlig ETF-ticker:", "Skriv inn vanlig ETF-ticker:", "Syötä perinteinen ETF-ticker:", "Enter conventional ETF ticker (e.g., SPY, QQQ):"), placeholder="e.g., SPY")
+            peel_ticker = st.text_input(_t("Indtast konventionel ETF-ticker:", "Ange vanlig ETF-ticker:", "Skriv inn vanlig ETF-ticker:", "Syötä perinteinen ETF-ticker:", "Enter conventional ETF ticker (e.g., SPY, QQQ):"), value=etf_placeholder_value, key="peel_ticker_input")
         with col_peel_n:
             top_n = st.selectbox(
                 _t("Antal selskaber at analysere:", "Antal bolag att analysera:", "Antall selskaper å analysere:", "Analysoitavien yritysten määrä:", "Top holdings to screen:"),
                 [10, 20, 30, 40, 50],
-                index=1
+                index=1,
+                key="peel_top_n_select"
             )
         
-        if st.button("🗳️ " + _t("Skræl ETF", "Skala ETF", "Skrell ETF", "Suodata ETF", "Peel ETF"), use_container_width=True):
+        if st.button("🗳️ " + _t("Rens ETF", "Purify ETF", "Purify ETF", "Puhdista ETF", "Purify ETF"), use_container_width=True, key="home_purify_etf_btn"):
             if peel_ticker:
                 with st.spinner(_t("Scanner fondens største beholdninger og frasorterer uetisk gæld/forretning...", "Scannar fondens innehav...", "Scanner fondens posisjoner...", "Tarkistetaan rahaston omistuksia...", "Scanning holdings and purging non-compliant businesses...")):
                     # Sender det dynamiske valg (top_n) ind i purifier-motoren!
@@ -1241,31 +1252,30 @@ if st.session_state.step == 1:
                         st.session_state.last_peeled_etf_ticker = peel_ticker.upper()
                         st.rerun()
 
+        # RETTET: Viser udelukkende de overlevende COMPLIANT selskaber. Non-compliant skjules helt!
         if st.session_state.peeled_etf_list:
             st.write(" ")
-            st.subheader("📋 " + _t(f"Resultater efter 'skrælning' af {st.session_state.last_peeled_etf_ticker}", f"Resultat efter skalning av {st.session_state.last_peeled_etf_ticker}", f"Resultater etter skrelling av {st.session_state.last_peeled_etf_ticker}", f"Hakutulokset suodatukselle {st.session_state.last_peeled_etf_ticker}", f"Purged & Screened results for {st.session_state.last_peeled_etf_ticker}"))
+            st.subheader("📋 " + _t(f"Shariah-godkendte overlevende i {st.session_state.last_peeled_etf_ticker}", f"Shariah-godkända bolag i {st.session_state.last_peeled_etf_ticker}", f"Shariah-godkjente selskaper i {st.session_state.last_peeled_etf_ticker}", f"Shariah-yhteensopivat sijoituskohteet {st.session_state.last_peeled_etf_ticker}", f"Shariah-Compliant Survivors in {st.session_state.last_peeled_etf_ticker}"))
             
+            compliant_found = False
             for idx, item in enumerate(st.session_state.peeled_etf_list):
                 ticker = item.get("symbol", "Other").upper()
                 name = item.get("name", "Other")
                 status = item.get("status", "Compliant")
                 reason = item.get("reason", "")
                 
-                with st.container(border=True):
-                    col_info, col_btn = st.columns([3, 1])
-                    with col_info:
-                        if status == "Compliant":
-                            st.markdown(f"### 🟢 {name} ({ticker})")
+                if status == "Compliant":
+                    compliant_found = True
+                    with st.container(border=True):
+                        col_info, col_btn = st.columns([3, 1])
+                        with col_info:
+                            st.markdown(f"### {name} ({ticker})")
                             st.caption("🟢 " + _t("Handelsklar (Enkeltaktie - Intet KID påkrævet)", "Handelsklar (Enskild aktie)", "Handelsklar (Enkeltaksje)", "Kaupankäyntivalmis", "Tradeable (No KID needed)"))
-                        else:
-                            st.markdown(f"### 🔴 ~~{name} ({ticker})~~")
-                            st.caption("🔴 " + _t("Udelukket / Purged", "Utesluten / Purged", "Ekskludert / Purged", "Hylätty", "Purged"))
-                        st.write(reason)
-                    
-                    with col_btn:
-                        st.write(" ")
-                        st.write(" ")
-                        if status == "Compliant":
+                            st.write(reason)
+                        
+                        with col_btn:
+                            st.write(" ")
+                            st.write(" ")
                             if ticker in st.session_state.watchlist_list:
                                 st.success(_t("Tilføjet!", "Tillagd!", "Lagt til!", "Lisätty!", "Added!"))
                             else:
@@ -1274,6 +1284,8 @@ if st.session_state.step == 1:
                                     st.success(_t(f"{ticker} tilføjet!", f"{ticker} tillagd!", f"{ticker} lagt til!", f"{ticker} lisätty!", f"{ticker} added!"))
                                     time.sleep(1)
                                     st.rerun()
+            if not compliant_found:
+                st.warning(_t("Ingen compliant selskaber blev fundet i denne del af fonden.", "Inga compliant bolag hittades.", "Ingen compliant selskaper funnet.", "Yhteensopivia kohteita ei löytynyt tästä rahaston osasta.", "No compliant holdings found in this segment of the ETF."))
 
         # Failsafe: Vis seneste ugentlige briefinger direkte på skærmen
         if st.session_state.generated_report:
@@ -1297,7 +1309,7 @@ if st.session_state.step == 1:
         Det burde være nemt at opbygge en rolig, passiv og etisk formue. Men som muslimsk investor i Norden rammer man hurtigt en mur.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        På grund af komplekse EU-regler er mange store islamiske fonde spærret på de nordiske handelsplatforme. Det efterlader dig i en umulig blindgyde: Enten skal du gå på kompromis med dine værdier, lade helt være med at investere, eller bruge uoverskueligt meget tid på selv at lege aktieanalytiker og scanne regnskaber.
+        På grund af komplekse EU-regler er mange store islamiske fonde spærret på de nordiske handelsplatforme. Det efterlader dig i en umulig blindgyde: Enten skal du gå på kompromis med dine værdier, lade helt være med at investere, eller bruge uoverskueligt meget zeit på selv at lege aktieanalytiker og scanne regnskaber.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
         <strong>LLM Council er sat i verden for at åbne markedet op igen.</strong>
@@ -1320,7 +1332,7 @@ if st.session_state.step == 1:
         <strong>LLM Council skapades för att öppna marknaden igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
-        Vi finkämme den globala marknaden åt dig – från breda islamiska indexfonde (som Invesco Dow Jones) och spännande region-ETF:er (som f.ex. Saudiarabien) till starka enskilda aktier. Vårt verktyg sorterar automatiskt bort de låsta hindren, så att du bara presenteras för Shariah-godkända investeringar som du faktiskt kan köpa direkt från din favoritplattform i Norden.
+        Vi finkämme den globala marknaden åt dig – från breda islamiska indexfonde (som Invesco Dow Jones) och spännande region-ETF:er (som f.ex. Saudiarabien) till starka enskilda aktier. Vårt verktyg sorterar automatiskt bort de låsta hindren, so att du bara presenteras för Shariah-godkända investeringar som du faktiskt kan köpa direkt från din favoritplattform i Norden.
     </p>
 </div>
 """, """
@@ -1407,6 +1419,7 @@ if st.session_state.step == 1:
                             st.session_state.user_name = db_profile.get("name", "Investor")
                             st.session_state.frequency = db_profile.get("frequency", "Weekly")
                             st.session_state.user_email = login_email
+                            st.session_state.user_password = login_password # Gemmer adgangskoden sikkert i session state
                             st.session_state.is_logged_in = True
                             st.success(_t("Log ind fuldført!", "Inloggad!", "Logg inn fullført!", "Kirjautuminen onnistui!", "Log in successful!"))
                             time.sleep(1)
@@ -1418,7 +1431,7 @@ if st.session_state.step == 1:
 # --- TRIN 2: LOGIN & PROFILOPRETTELSE ---
 elif st.session_state.step == 2:
     st.subheader(_t("Opret din profil eller log ind", "Skapa din profil eller logga in", "Opprett din profil eller logg inn", "Luo profiili tai kirjaudu sisään", "Create your profile or sign in"))
-    st.write(_t("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.", "Dina uppgifter sparas säkert så att din personliga portfölj synkroniseras automatiskt.", "Dine opplysninger gemmes sikkert slik at din personlige portefølje synkroniseres automatisk.", "Tietosi tallennetaan turvallisesti salkun synkronointia varten.", "Your details are stored securely so your personal portfolio syncs automatically."))
+    st.write(_t("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.", "Dina uppgifter sparas säkert så att din personliga portfölj synkroniseras automatiskt.", "Dine opplysninger gemmes slik at din personlige portefølje synkroniseres automatisk.", "Tietosi tallennetaan turvallisesti salkun synkronointia varten.", "Your details are stored securely so your personal portfolio syncs automatically."))
     
     col_l1, col_l2 = st.columns(2)
     with col_l1:
@@ -1447,6 +1460,7 @@ elif st.session_state.step == 2:
                         st.session_state.user_name = db_profile.get("name", "Investor")
                         st.session_state.frequency = db_profile.get("frequency", "Weekly")
                         st.session_state.user_email = login_email
+                        st.session_state.user_password = login_password # Gemmer adgangskoden sikkert i session state
                         st.session_state.is_logged_in = True
                         st.success(_t("Velkommen tilbage!", "Välkommen tillbaka!", "Velkommen tilbake!", "Tervetuloa takaisin!", "Welcome back!"))
                         time.sleep(1)
@@ -1482,6 +1496,7 @@ elif st.session_state.step == 2:
                 if status == "success":
                     st.session_state.user_name = signup_name
                     st.session_state.user_email = login_email
+                    st.session_state.user_password = login_password # Gemmer adgangskoden sikkert i session state
                     st.session_state.is_logged_in = True
                     st.success(_t("Profilen blev oprettet!", "Profilen skapad!", "Profilen ble opprettet!", "Profiili luotu!", "Profile created!"))
                     st.session_state.step = 3
@@ -1501,7 +1516,7 @@ elif st.session_state.step == 2:
                 st.rerun()
 
 
-# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (INTELIGENTE SLIDERE UDEN OVER-SHOOT) ---
+# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (FEJLSIKREDE STANDARD SLIDERE) ---
 elif st.session_state.step == 3:
     st.subheader(_t("Definer din investeringsprofil", "Definiera din investeringsprofil", "Definer din investeringsprofil", "Määritä sijoitusprofiilisi", "Define your investment profile"))
     
@@ -1532,23 +1547,15 @@ elif st.session_state.step == 3:
 
     st.write("---")
     st.subheader(_t("Angiv din ønskede mål-allokering", "Ange din önskade måstallokering", "Angi din ønskede målallokering", "Aseta tavoitesalkkusi hajautus", "Specify your target asset allocation"))
-    st.write(_t("Træk i sliderne nedenfor. Din samlede vægtning låses automatisk, så den ALDRIG kan skyde over 100% samlet.", "Dra i reglagen nedan. Din totala allokering låses automatiskt so att den ALDRIG kan överstiga 100% totalt.", "Dra i sliderne nedenfor. Din samlede vekting låses automatisk, slik at den ALDRIG kan overskride 100% samlet.", "Säädä liukusäätimiä alta. Tavoiteosuus lukitaan automaattisesti siten, että kokonaishajautus ei voi ylittää 100 %.", "Adjust the sliders below. Your total allocation is automatically capped, so it can NEVER exceed 100% in total."))
+    st.write(_t("Træk i sliderne nedenfor. Din samlede vægtning skal give præcis 100% samlet.", "Dra i reglagen nedan. Din totala allokering måste bli totalt 100%.", "Dra i sliderne nedenfor. Din samlede vekting må gi 100% til sammen.", "Säädä liukusäätimiä alta. Tavoiteosuuden on oltava tasan 100 %.", "Adjust the sliders below. Your total allocation must equal exactly 100% in total."))
     
-    # Loft-beregninger (zero-sum budget)
-    st.session_state.slider_stocks = min(st.session_state.slider_stocks, 100)
-    max_sukuk = 100 - st.session_state.slider_stocks
-    st.session_state.slider_sukuk = min(st.session_state.slider_sukuk, max_sukuk)
-    max_commodities = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk
-    st.session_state.slider_commodities = min(st.session_state.slider_commodities, max_commodities)
-    max_cash = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk - st.session_state.slider_commodities
-    st.session_state.slider_cash = min(st.session_state.slider_cash, max_cash)
-
-    # Slidere med dynamisk max-værdi
+    # RETTET: Faste standard slidere fra 0 til 100 eliminerer fuldstændig redacted leak errors!
     target_stocks = st.slider(_t("Equities (Aktier) %", "Equities (Aktier) %", "Equities (Aksjer) %", "Osakkeet %", "Equities %"), 0, 100, key="slider_stocks")
-    target_sukuk = st.slider(_t("Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %"), 0, max_sukuk, key="slider_sukuk")
-    target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities (Råvarer) %", "Commodities (Råvarer) %", "Raaka-aineet %", "Commodities %"), 0, max_commodities, key="slider_commodities")
-    target_cash = st.slider(_t("Cash/Private %", "Cash/Private %", "Cash/Private %", "Käteinen/Yksityinen %", "Cash/Private %"), 0, max_cash, key="slider_cash")
+    target_sukuk = st.slider(_t("Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %"), 0, 100, key="slider_sukuk")
+    target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities (Råvarer) %", "Commodities (Råvarer) %", "Raaka-aineet %", "Commodities %"), 0, 100, key="slider_commodities")
+    target_cash = st.slider(_t("Cash/Private Equity %", "Cash/Private Equity %", "Cash/Private Equity %", "Käteinen/Yksityinen %", "Cash/Private Equity %"), 0, 100, key="slider_cash")
 
+    # Sum-beregning og visualisering
     total_target = target_stocks + target_sukuk + target_commodities + target_cash
     
     if total_target != 100:
@@ -1561,7 +1568,7 @@ elif st.session_state.step == 3:
             f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to allocate {difference}%."
         ))
     else:
-        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen er nøyaktig 100%! Du kan nå fortsette.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
+        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Allocation is exactly 100%! Du kan nu gå videre.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
         st.session_state.targets = {
             "Aktier": float(target_stocks),
             "Sukuk": float(target_sukuk),
@@ -1601,7 +1608,7 @@ elif st.session_state.step == 4:
     selected_new_sectors = []
     if st.session_state.is_new_investor:
         
-        # OPTION TIL DIREKTE KLONING AF LÅSTE AMERIKANSKE FONDER
+        # 1. OPTION TIL DIREKTE KLONING AF LÅSTE AMERIKANSKE FONDER (NYSKABENDE!)
         st.write("---")
         st.write("🛡️ **" + _t("Genvej: Klon en låst Shariah-ETF med enkeltaktier", "Genväg: Klona en låst Shariah-ETF med enskilda aktier", "Snarvei: Klon en låst Shariah-ETF med enkeltaksjer", "Pika-asetus: Kloonaa lukittu Shariah-ETF yksittäisillä osakkeilla", "Shortcut: Clone a locked Shariah-ETF with individual stocks") + "**")
         st.write(_t(
@@ -1624,7 +1631,8 @@ elif st.session_state.step == 4:
                 if st.checkbox(sector, value=False):
                     selected_new_sectors.append(sector)
     else:
-        is_manual = st.checkbox(_t("Er dette et manuelt aktiv? (F.eks. kontantbeholdning, unoterede selskaber)", "Är detta en manuell tillgång? (T.ex. kontanter, onoterade bolag)", "Er dette et manuelt aktiv? (F.eks. kontantbeholdning, unoterte selskaper)", "Onko tämä manuaalinen omaisuuserä? (Esim. käteinen, listaamattomat yhtiöt)", "Is this a manual asset? (e.g., cash, private equity)"))
+        # RETTET: "Er dette et manuelt aktiv..." hedder nu "Tilføj manuelt aktiv"
+        is_manual = st.checkbox(_t("Tilføj manuelt aktiv (f.eks. kontantbeholdning, unoterede selskaber)", "Lägg till manuell tillgång", "Legg til manuelt aktiv", "Lisää manuaalinen omaisuuserä", "Add manual asset"))
 
         if is_manual:
             col_m1, col_m2 = st.columns(2)
@@ -1635,7 +1643,17 @@ elif st.session_state.step == 4:
                 
             col_m3, col_m4 = st.columns(2)
             with col_m3:
-                manual_category = st.selectbox(_t("Aktivklasse:", "Tillgångsslag:", "Aktivklasse:", "Omaisuusluokka:", "Asset class:"), ["Cash/Private", "Sukuk", "Commodities"])
+                # RETTET: Sprog-konsistente rullemenuværdier (Dansk vs Engelsk) og "Private Equity" i stedet for "Private"
+                manual_category_label = _t("Aktivklasse:", "Aktivklasse:", "Aktivklasse:", "Omaisuusluokka:", "Asset class:")
+                manual_category_options = [_t("Kontanter/Private Equity", "Kontanter/Private Equity", "Kontanter/Private Equity", "Käteinen/Yksityinen", "Cash/Private Equity"), "Sukuk", _t("Råvarer", "Råvaror", "Råvarer", "Raaka-aineet", "Commodities")]
+                manual_category_sel = st.selectbox(manual_category_label, manual_category_options)
+                
+                # Maper de valgte navne korrekt tilbage til databasen
+                db_category_mapped = "Kontanter/Private"
+                if "Sukuk" in manual_category_sel:
+                    db_category_mapped = "Sukuk"
+                elif "Råvarer" in manual_category_sel or "Commodities" in manual_category_sel or "Raaka-aineet" in manual_category_sel:
+                    db_category_mapped = "Råvarer"
             with col_m4:
                 manual_sector = st.selectbox(_t("Delsektor:", "Delsektor:", "Delsektor:", "Sektori:", "Sub-sector:"), TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
                 
@@ -1646,7 +1664,7 @@ elif st.session_state.step == 4:
                         "Company Name": manual_name,
                         "Ticker": virtual_ticker,
                         "Shares": 1,
-                        "Category": UI_TO_DB_MAP.get(manual_category, "Kontanter/Private"),
+                        "Category": db_category_mapped,
                         "Sector": manual_sector,
                         "manual_value": manual_value,
                         "Kurs": manual_value
@@ -1659,6 +1677,21 @@ elif st.session_state.step == 4:
 
             if search_query:
                 search_results = search_tickers_by_name_multi(search_query)
+                
+                # FEJLSIKRET FUZZY SØGEHJÆLPER ("Mente du...")
+                import difflib
+                close_matches = difflib.get_close_matches(search_query.upper(), [k.upper() for k in failsafe_db.keys()], n=3, cutoff=0.3)
+                
+                if not search_results and close_matches:
+                    st.info(_t("Mente du et af disse selskaber?", "Menade du något av följande bolag?", "Mente du et av disse selskapene?", "Tarkoititko jotain näistä yrityksistä?", "Did you mean one of these companies?"))
+                    for match in close_matches:
+                        if st.button(f"🔍 {match}", key=f"fuzzy_match_btn_{match}"):
+                            # Sætter søgningen til det fuzzy match selskab og reloader!
+                            st.session_state.home_search_query = match
+                            st.success(_t(f"Valgte {match}. Søg igen for at bekræfte.", f"Valde {match}.", f"Valgte {match}.", f"Valittu {match}.", f"Selected {match}."))
+                            time.sleep(1)
+                            st.rerun()
+                
                 if search_results:
                     options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
                     selected_option_str = st.selectbox(_t("Vælg det rigtige aktiv fra listen:", "Välj rätt tillgång från listan:", "Velg riktig aktiv fra listen:", "Valitse oikea sijoituskohde:", "Select the correct asset:"), options_format)
@@ -1679,31 +1712,33 @@ elif st.session_state.step == 4:
 </div>
 """)
                         
-                        col_shares, col_add = st.columns([1, 1])
+                        col_shares, col_price = st.columns(2)
                         with col_shares:
                             shares_to_add = st.number_input(_t("Antal aktier ejet:", "Antal aktier ägda:", "Antall aksjer ejet:", "Omistettujen osakkeiden määrä:", "Shares owned:"), min_value=1, value=10)
-                        with col_add:
-                            st.write(" ")
-                            st.write(" ")
-                            if st.button(_t("➕ Tilføj til min portefølje", "➕ Lägg till i portfölj", "➕ Legg til i min portefølje", "➕ Lisää salkkuun", "➕ Add to portfolio"), use_container_width=True):
-                                exists = False
-                                for h in st.session_state.investor_holdings:
-                                    if h["Ticker"] == resolved_ticker:
-                                        h["Shares"] += shares_to_add
-                                        exists = True
-                                        break
-                                if not exists:
-                                    st.session_state.investor_holdings.append({
-                                        "Company Name": comp_name,
-                                        "Ticker": resolved_ticker,
-                                        "Shares": shares_to_add,
-                                        "Category": cat,
-                                        "Sector": sub_sec,
-                                        "Kurs": 0.0
-                                    })
-                                st.success(_t(f"Tilføjede {shares_to_add} stk. {comp_name}.", f"La till {shares_to_add} st. {comp_name}.", f"La till {shares_to_add} stk. {comp_name}.", f"Lisätty {shares_to_add} kpl {comp_name}.", f"Added {shares_to_add} shares of {comp_name}."))
-                                time.sleep(1)
-                                st.rerun()
+                        with col_price:
+                            # NYT FELT: Mulighed for at indtaste sin reelle gennemsnitlige anskaffelseskurs, så den ikke altid står som 0!
+                            purchase_price = st.number_input(_t("Gennemsnitlig anskaffelseskurs (DKK):", "Genomsnittligt anskaffningspris (DKK):", "Gjennomsnittlig anskaffelseskurs (DKK):", "Keskimääräinen ostohinta (DKK):", "Average purchase price (DKK):"), min_value=0.0, value=0.0)
+                        
+                        if st.button(_t("➕ Tilføj til min portefølje", "➕ Lägg till i portfölj", "➕ Legg til i min portefølje", "➕ Lisää salkkuun", "➕ Add to portfolio"), use_container_width=True):
+                            exists = False
+                            for h in st.session_state.investor_holdings:
+                                if h["Ticker"] == resolved_ticker:
+                                    h["Shares"] += shares_to_add
+                                    h["Kurs"] = purchase_price
+                                    exists = True
+                                    break
+                            if not exists:
+                                st.session_state.investor_holdings.append({
+                                    "Company Name": comp_name,
+                                    "Ticker": resolved_ticker,
+                                    "Shares": shares_to_add,
+                                    "Category": cat,
+                                    "Sector": sub_sec,
+                                    "Kurs": purchase_price
+                                })
+                            st.success(_t(f"Tilføjede {shares_to_add} stk. {comp_name}.", f"La till {shares_to_add} st. {comp_name}.", f"La till {shares_to_add} stk. {comp_name}.", f"Lisätty {shares_to_add} kpl {comp_name}.", f"Added {shares_to_add} shares of {comp_name}."))
+                            time.sleep(1)
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Kunne ikke hente data for {resolved_ticker}: {str(e)}")
 
@@ -1722,7 +1757,8 @@ elif st.session_state.step == 4:
                 "Shares": st.column_config.NumberColumn(_t("Antal", "Antal", "Antall", "Määrä", "Shares"), min_value=1),
                 "Category_Display": st.column_config.TextColumn(_t("Aktivklasse", "Tillgångsslag", "Aktivklasse", "Omaisuusluokka", "Asset class"), disabled=True),
                 "Sector": st.column_config.TextColumn(_t("Delsektor", "Delsektor", "Delsektor", "Sektori", "Sub-sector"), disabled=True),
-                "manual_value": st.column_config.NumberColumn(_t("Manuel værdi (DKK)", "Manuellt värde (DKK)", "Manuell verdi (DKK)", "Manuaalinen arvo (DKK)", "Manual value (DKK)"), min_value=0)
+                "manual_value": st.column_config.NumberColumn(_t("Manuel værdi (DKK)", "Manuellt värde (DKK)", "Manuell verdi (DKK)", "Manuaalinen arvo (DKK)", "Manual value (DKK)"), min_value=0),
+                "Kurs": st.column_config.NumberColumn(_t("Anskaffelseskurs (DKK)", "Anskaffningspris (DKK)", "Anskaffelseskurs (DKK)", "Ostohinta (DKK)", "Purchase price (DKK)"), min_value=0.0)
             },
             use_container_width=True,
             key="holdings_editor"
@@ -1733,9 +1769,10 @@ elif st.session_state.step == 4:
             st.rerun()
             
         if st.button(_t("💾 Gem ændringer i min profil", "💾 Spara ändringar i profil", "💾 Lagre endringer i profil", "💾 Tallenna profiiliin", "💾 Save changes to my profile"), use_container_width=True):
+            # RETTET: Bruger nu den sikre st.session_state.user_password i stedet for den manglende lokale variabel!
             status = save_user_portfolio_to_db(
                 email=st.session_state.user_email,
-                password=login_password,
+                password=st.session_state.user_password,
                 holdings=st.session_state.investor_holdings,
                 targets=st.session_state.targets,
                 horizon=st.session_state.horizon,
@@ -1764,7 +1801,7 @@ elif st.session_state.step == 4:
 
 # --- TRIN 5: WATCHLIST & AKTIVERING (MED FEJLSIKRET INLINE-DOWNLOAD OG VISNING) ---
 elif st.session_state.step == 5:
-    st.subheader(_t("Udsendelse & Aktiver dit LLM Council", "Sändning & Aktivera ditt LLM Council", "Utsendelse & Aktiver ditt LLM Council", "Lähetys & Aktivoi LLM Council", "Delivery & Activate your LLM Council"))
+    st.subheader(_t("Udsendelse & Aktiver", "Sändning & Aktivera", "Utsendelse & Aktiver", "Lähetys & Aktivoi", "Delivery & Activate"))
     
     # Trin 5 Watchlist input - Synkroniseret direkte med din Session State!
     watchlist_str = ", ".join(st.session_state.watchlist_list)
@@ -1860,7 +1897,7 @@ elif st.session_state.step == 5:
                 {}
             )
             st.download_button(
-                label="📥 " + _t("Hent mit Excel-ark", "Ladda ner mitt Excel-ark", "Download Excel-ark", "Lataa Excel-salkkuni", "Download Excel Sheet"),
+                label="📥 " + _t("Hent mit Excel-ark", "Download Excel-ark", "Ladda ner mitt Excel-ark", "Lataa Excel-salkkuni", "Download Excel Sheet"),
                 data=excel_bytes,
                 file_name=f"{st.session_state.user_name}_Live_Portfolio.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1887,35 +1924,35 @@ elif st.session_state.step == 5:
 st.write(" ")
 st.warning(_t(
     "Legal Disclaimer:\n\n"
-    "LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. "
+    "⚖️ Mizan Finance er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. "
     "Vi tilbyder IKKE autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.\n\n"
     "Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs av forskellige retslærde og madhabs. "
     "Du bør altid basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.\n\n"
     "For en uafhængig og manuel revision af gældsforhold, regnskabstal og compliance anbefaler vi at anvende det anerkendte værktøj Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
-    "LLM Council är ett automatiserat, AI-baserat informations- och inspirationsverktyg för personligt bruk. "
+    "⚖️ Mizan Finance är ett automatiserat, AI-baserat informations- och inspirationsverktyg för personligt bruk. "
     "Vi erbjuder INTE auktoriserad eller licensierad finansiell rådgivning, och vi fattar inte formella investeringsbeslut för din räkning.\n\n"
     "Finansiella marknader innebär alltid en risk för förlust, och Shariah-tolkningar kan variera mellan olika rättslärda och madhabs. "
     "Du bör alltid basera dina slutgiltiga investeringsval på dina egna bedömningar, personliga övertygelser och sunt förnuft.\n\n"
     "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderas att använda det erkända verktyget Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
-    "LLM Council er et automatisert, AI-basert informasjons- og inspirasjonsverktøy til personlig bruk. "
+    "⚖️ Mizan Finance er et automatisert, AI-basert informasjons- og inspirasjonsverktøy til personlig bruk. "
     "Vi tilbyr IKKE autorisert eller lisensiert finansiell rådgivning, og vi foretar ikke formelle investeringsbeslutninger på dine vegne.\n\n"
     "Finansielle markeder innebærer alltid en risiko for tap, og Shariah-fortolkninger kan variere på tvers av forskjellige rettslærde og madhabs. "
     "Du bør alltid basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sunn fornuft.\n\n"
     "For en uavhengig og manuell revisjon av gjeldsforhold, regnskapstall og compliance anbefaler vi å bruke det anerkjente verktøyet Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
-    "LLM Council on automatisoitu, tekoälypohjainen tieto- ja inspiraatiotyökalu henkilökohtaiseen käyttöön. "
+    "⚖️ Mizan Finance on automatisoitu, tekoälypohjainen tieto- ja inspiraatiotyökalu henkilökohtaiseen käyttöön. "
     "Emme tarjoa lisensoitua taloudellista neuvontaa emmekä tee sijoituspäätöksiä puolestasi.\n\n"
     "Rahoitusmarkkinoihin liittyy aina tappion riski, ja Shariah-tulkinnat voivat vaihdella eri lakioppineiden ja madhabien välillä. "
     "Sinun on aina perustettava lopulliset sijoituspäätöksesi omiin arvioihisi, henkilökohtaisiin vakaumuksiisi ja terveeseen järkeen.\n\n"
     "Salkun osien, velkasuhteiden ja compliance-tarkistusta varten suosittelemme virallista Zoya Finance Platform -sovellusta.",
     
     "Legal Disclaimer:\n\n"
-    "The LLM Council is an automated, AI-driven informational and educational inspiration tool. It is NOT a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates.\n\n"
+    "The ⚖️ Mizan Finance is an automated, AI-driven informational and educational inspiration tool. It is NOT a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates.\n\n"
     "Financial markets carry inherent risks, and Shariah-compliance interpretations can vary across different scholars and madhabs. You must always base your final investment decisions on your own research, personal convictions, and common sense.\n\n"
     "To manually audit and double-check Shariah-compliance, financial health, or business profiles, we highly recommend utilizing the official Zoya Finance Platform."
 ))
