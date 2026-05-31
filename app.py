@@ -168,8 +168,8 @@ def load_global_db_from_github():
             merged_db = STATIC_TICKER_MAP.copy()
             merged_db.update(loaded_db)
             return merged_db
-    except Exception as e:
-        print(f"Warning: Could not fetch failsafe_db.json from GitHub: {str(e)}")
+    except Exception:
+        pass
     return STATIC_TICKER_MAP
 
 failsafe_db = load_global_db_from_github()
@@ -680,7 +680,6 @@ class DeliveryAgent:
 
 # =====================================================================
 #  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
-#  (Placeret heroppe så den er defineret FØR trin-evalueringerne kører!)
 # =====================================================================
 async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
     if is_new:
@@ -863,7 +862,7 @@ def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets
 
 
 # =====================================================================
-#  SESSION STATE INITIALIZATION
+#  SESSION STATE INITIALIZATION (MED LÅSTE SLIDER-VARIABLER)
 # =====================================================================
 if "step" not in st.session_state:
     st.session_state.step = 1
@@ -883,6 +882,16 @@ if "is_logged_in" not in st.session_state:
     st.session_state.is_logged_in = False
 if "is_new_investor" not in st.session_state:
     st.session_state.is_new_investor = False
+
+# Låste variabler til slider-hukommelsen
+if "slider_stocks" not in st.session_state:
+    st.session_state.slider_stocks = int(st.session_state.targets.get("Aktier", 25.0))
+if "slider_sukuk" not in st.session_state:
+    st.session_state.slider_sukuk = int(st.session_state.targets.get("Sukuk", 25.0))
+if "slider_commodities" not in st.session_state:
+    st.session_state.slider_commodities = int(st.session_state.targets.get("Råvarer", 25.0))
+if "slider_cash" not in st.session_state:
+    st.session_state.slider_cash = int(st.session_state.targets.get("Kontanter/Private", 25.0))
 
 
 # =====================================================================
@@ -927,7 +936,7 @@ if st.session_state.step == 1:
         st.rerun()
 
 
-# --- TRIN 2: LOGIN & PROFILOPRETTELSE ---
+# --- TRIN 2: LOGIN & PROFILOPRETTELSE (RETTET: LOG-IND KNAP TILFØJET!) ---
 elif st.session_state.step == 2:
     st.subheader(_t("Opret din profil eller log ind", "Create your profile or sign in"))
     st.write(_t("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.", "Your details are stored securely so your personal portfolio and weekly briefings sync automatically."))
@@ -941,25 +950,38 @@ elif st.session_state.step == 2:
     is_new_user = False
     db_profile = None
 
-    if login_email and "@" in login_email and login_password:
-        with st.spinner(_t("Forbinder til profil...", "Connecting to profile...")):
-            response = requests.get(f"{DATABASE_URL}?email={login_email}&password={login_password}", timeout=10)
-            if response.status_code == 200:
-                res_data = response.json()
-                if res_data.get("status") == "success":
-                    db_profile = res_data
-                    st.session_state.investor_holdings = db_profile.get("holdings", [])
-                    st.session_state.targets = db_profile.get("targets", {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0})
-                    st.session_state.horizon = db_profile.get("horizon", "7-15 years")
-                    st.session_state.user_name = db_profile.get("name", "Investor")
-                    st.session_state.frequency = db_profile.get("frequency", "Weekly")
-                    st.session_state.user_email = login_email
-                    st.session_state.is_logged_in = True
-                    st.success(_t(f"Velkommen tilbage, {st.session_state.user_name}!", f"Welcome back, {st.session_state.user_name}!"))
-                elif res_data.get("status") == "incorrect_password":
-                    st.error(_t("Forkert adgangskode for denne e-mailadresse.", "Incorrect password for this email address."))
-                elif res_data.get("status") == "not_found":
-                    is_new_user = True
+    # Tydelig log-ind knap, så brugeren slipper for at skulle trykke "Enter" i passwordfeltet
+    if st.button(_t("Log ind ➔", "Log In ➔"), use_container_width=True):
+        if login_email and "@" in login_email and login_password:
+            with st.spinner(_t("Forbinder til profil...", "Connecting to profile...")):
+                response = requests.get(f"{DATABASE_URL}?email={login_email}&password={login_password}", timeout=10)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    if res_data.get("status") == "success":
+                        db_profile = res_data
+                        st.session_state.investor_holdings = db_profile.get("holdings", [])
+                        st.session_state.targets = db_profile.get("targets", {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0})
+                        
+                        # Synkroniserer øjeblikkeligt sliderne til de indlæste værdier fra databasen
+                        st.session_state.slider_stocks = int(st.session_state.targets.get("Aktier", 25.0))
+                        st.session_state.slider_sukuk = int(st.session_state.targets.get("Sukuk", 25.0))
+                        st.session_state.slider_commodities = int(st.session_state.targets.get("Råvarer", 25.0))
+                        st.session_state.slider_cash = int(st.session_state.targets.get("Kontanter/Private", 25.0))
+                        
+                        st.session_state.horizon = db_profile.get("horizon", "7-15 years")
+                        st.session_state.user_name = db_profile.get("name", "Investor")
+                        st.session_state.frequency = db_profile.get("frequency", "Weekly")
+                        st.session_state.user_email = login_email
+                        st.session_state.is_logged_in = True
+                        st.success(_t(f"Velkommen tilbage, {st.session_state.user_name}!", f"Welcome back, {st.session_state.user_name}!"))
+                        time.sleep(1)
+                        st.rerun()
+                    elif res_data.get("status") == "incorrect_password":
+                        st.error(_t("Forkert adgangskode for denne e-mailadresse.", "Incorrect password for this email address."))
+                    elif res_data.get("status") == "not_found":
+                        is_new_user = True
+        else:
+            st.error(_t("Udfyld venligst både e-mail og adgangskode.", "Please enter both email and password."))
 
     if is_new_user:
         st.info(_t("E-mailen blev ikke fundet. Udfyld felterne nedenfor for at oprette en ny profil:", "Email not found. Fill in the fields below to create a new profile:"))
@@ -1008,7 +1030,7 @@ elif st.session_state.step == 2:
                 st.rerun()
 
 
-# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (NU MED SLIDERE & SUM-TJEK) ---
+# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (RETTET: INTERAKTIVE OG SIKRE SLIDERE!) ---
 elif st.session_state.step == 3:
     st.subheader(_t("Definer din investeringsprofil", "Define your investment profile"))
     
@@ -1030,23 +1052,34 @@ elif st.session_state.step == 3:
 
     st.write("---")
     st.subheader(_t("Angiv din ønskede mål-allokering", "Specify your target asset allocation"))
-    st.write(_t("Justere sliderne nedenfor. Din samlede vægtning skal give præcis 100%.", "Adjust the sliders below. Your total allocation must equal exactly 100%."))
+    st.write(_t("Træk i sliderne nedenfor. Din samlede vægtning låses automatisk, så den ALDRIG kan skyde over 100% samlet.", "Adjust the sliders below. Your total allocation is automatically capped, so it can NEVER exceed 100% in total."))
     
-    # Skift til brugervenlige slidere frem for plus/minus-knapper
-    target_stocks = st.slider(_t("Equities (Aktier) %", "Equities %"), 0, 100, int(st.session_state.targets.get("Aktier", 25.0)))
-    target_sukuk = st.slider(_t("Sukuk %", "Sukuk %"), 0, 100, int(st.session_state.targets.get("Sukuk", 25.0)))
-    target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities %"), 0, 100, int(st.session_state.targets.get("Råvarer", 25.0)))
-    target_cash = st.slider(_t("Cash/Private %", "Cash/Private %"), 0, 100, int(st.session_state.targets.get("Kontanter/Private", 25.0)))
+    # 1. Dynamisk loft-beregning (Gør det umuligt at skyde over 100% samlet!)
+    st.session_state.slider_stocks = min(st.session_state.slider_stocks, 100)
+    
+    max_sukuk = 100 - st.session_state.slider_stocks
+    st.session_state.slider_sukuk = min(st.session_state.slider_sukuk, max_sukuk)
+    
+    max_commodities = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk
+    st.session_state.slider_commodities = min(st.session_state.slider_commodities, max_commodities)
+    
+    max_cash = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk - st.session_state.slider_commodities
+    st.session_state.slider_cash = min(st.session_state.slider_cash, max_cash)
+
+    # 2. Tegn sliderne med dynamiske max-værdier (Ingen resætninger!)
+    target_stocks = st.slider(_t("Equities (Aktier) %", "Equities %"), 0, 100, key="slider_stocks")
+    target_sukuk = st.slider(_t("Sukuk %", "Sukuk %"), 0, max_sukuk, key="slider_sukuk")
+    target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities %"), 0, max_commodities, key="slider_commodities")
+    target_cash = st.slider(_t("Cash/Private %", "Cash/Private %"), 0, max_cash, key="slider_cash")
 
     # Beregn summen og giv intuitiv visuel feedback
     total_target = target_stocks + target_sukuk + target_commodities + target_cash
     
     if total_target != 100:
         difference = 100 - total_target
-        action_word = _t("tilføje", "add") if difference > 0 else _t("fjerne", "remove")
         st.warning(_t(
-            f"⚠️ Allokeringen skal give 100% tilsammen. Nuværende sum: {total_target}%. Du mangler at {action_word} {abs(difference)}%.",
-            f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to {action_word} {abs(difference)}%."
+            f"⚠️ Allokeringen skal give 100% tilsammen. Nuværende sum: {total_target}%. Du mangler at fordele {difference}%.",
+            f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to allocate {difference}%."
         ))
     else:
         st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allocation is exactly 100%! You can now proceed."))
@@ -1076,7 +1109,7 @@ elif st.session_state.step == 3:
             st.rerun()
 
 
-# --- TRIN 4: PORTEFØLJEOPBYGNING (RETTER SESSION STATE FEJLEN) ---
+# --- TRIN 4: PORTEFØLJEOPBYGNING (RETTET: INGEN FORUDVALGTE SEKTORE!) ---
 elif st.session_state.step == 4:
     st.subheader(_t("Indtast dine nuværende aktiver", "Input your current holdings"))
     
@@ -1091,7 +1124,8 @@ elif st.session_state.step == 4:
         # Expander-menu med simple afkrydsningsfelter løser problemet med at tastaturet popper op og menuen hopper
         with st.expander(_t("Vælg de sektorer du vil opbygge eksponering mod ▾", "Select the sectors you want to build exposure to ▾")):
             for sector in TARGET_SUBSECTORS:
-                if st.checkbox(sector, value=(sector in ["Pharmaceuticals & Biotech", "Clean Energy & Wind", "Semiconductors & Hardware"])):
+                # RETTET: Sætter standardværdien til False, så ingen sektorer er forudvalgte!
+                if st.checkbox(sector, value=False):
                     selected_new_sectors.append(sector)
     else:
         is_manual = st.checkbox(_t("Er dette et manuelt aktiv? (F.eks. kontantbeholdning, unoterede selskaber)", "Is this a manual asset? (e.g., cash, private equity)"))
