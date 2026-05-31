@@ -44,7 +44,7 @@ import streamlit as st
 st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳️", layout="centered")
 
 # =====================================================================
-#  HJÆLPEFUNKTION TIL AT FORHINDRE HTML-KODEBLOKKE I DARK MODE
+#  HJÆLPEFUNKTIONER TIL HTML & TOSPROGET SUPPORT (Live-oversættelse)
 # =====================================================================
 def render_html(html_str: str):
     """
@@ -53,6 +53,25 @@ def render_html(html_str: str):
     """
     clean_html = "".join([line.strip() for line in html_str.splitlines()])
     st.markdown(clean_html, unsafe_allow_html=True)
+
+
+# Sprogvælger placeret øverst til højre
+col_title, col_lang = st.columns([3, 1])
+with col_title:
+    st.title("🗳️ LLM Council")
+with col_lang:
+    if "lang" not in st.session_state:
+        st.session_state.lang = "Dansk"
+    st.session_state.lang = st.selectbox(
+        "Sprog / Language", 
+        ["Dansk", "English"], 
+        index=0 if st.session_state.lang == "Dansk" else 1,
+        label_visibility="collapsed"
+    )
+
+def _t(da_text: str, en_text: str) -> str:
+    """Hjælpefunktion til live-oversættelse af UI-tekster."""
+    return da_text if st.session_state.lang == "Dansk" else en_text
 
 
 # =====================================================================
@@ -336,7 +355,7 @@ def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -
 
 
 # =====================================================================
-#  SÆRLIG SCREENING & AGENTER
+#  PORTFOLIO MANAGER AGENT
 # =====================================================================
 class PortfolioManagerAgent:
     def __init__(self, current: dict, target: dict):
@@ -362,6 +381,9 @@ class PortfolioManagerAgent:
         return focus_category, deficit
 
 
+# =====================================================================
+#  SCREENER & COMPLIANCE AGENT
+# =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
     PROHIBITED_INDUSTRIES = ["Banks", "Insurance", "Aerospace & Defense", "Gambling", "Tobacco", "Distillers & Vintners", "Breweries"]
@@ -709,22 +731,25 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 if "is_logged_in" not in st.session_state:
     st.session_state.is_logged_in = False
+if "is_new_investor" not in st.session_state:
+    st.session_state.is_new_investor = False
 
 
 # =====================================================================
 #  STREAMLIT UI STEPS
 # =====================================================================
-st.title("🗳️ LLM Council")
-st.caption("PREMIUM ASSET ALLOCATION & PORTFOLIO COMPANION")
+
+# Diskret status-indikator i toppen (erstatter den gamle stepper-menu)
+st.caption(_t(f"Trin {st.session_state.step} af 5", f"Step {st.session_state.step} of 5"))
 
 
-# --- TRIN 1: VELKOMST & KORT KONTEKST (BIBEHOLDER DIN ORIGINALE DARK MODE STYLING UDEN FASTE BAGGRUNDSFARVER) ---
+# --- TRIN 1: VELKOMST & KORT KONTEKST ---
 if st.session_state.step == 1:
-    # Komprimeret og kortere onboardingtekst, placeret i din oprindelige boks uden forced background-color
-    render_html("""
+    # Komprimeret og lynhurtigt læst onboardingtekst, tilpasset Dark Mode
+    render_html(_t("""
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
     <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
-    <p style="margin-bottom: 15px;">
+    <p style="margin-bottom: 12px;">
         Som muslimsk investor i Norden (Saxo Bank, Nordnet, Avanza osv.) har du ikke adgang til automatiserede integrationsløsninger. 
         Det tvinger dig ofte ud i tidskrævende, manuel screening af Shariah-gældsregler (AAOIFI-standarder) og selskabshistorier.
     </p>
@@ -732,30 +757,42 @@ if st.session_state.step == 1:
         <strong>LLM Council er din selvhjulpne makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste AI-beslutninger. Vi hjælper dig med at opbygge og rebalancere en robust, diversificeret portefølje fordelt på fire søjler: <strong>Equities</strong> (Aktier), <strong>Sukuk</strong> (Islamiske Certifikater), <strong>Commodities</strong> (Råvarer) og <strong>Cash/Private</strong>.
     </p>
 </div>
-""")
+""", """
+<div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ A Transparent Guide for the Conscious Investor</h3>
+    <p style="margin-bottom: 12px;">
+        As a Muslim investor in the Nordics (Saxo Bank, Nordnet, Avanza, etc.), you lack automated integration solutions. 
+        This often forces you into time-consuming, manual screening of Shariah debt rules (AAOIFI standards) and business models.
+    </p>
+    <p style="margin-bottom: 15px;">
+        <strong>LLM Council is your self-reliant companion.</strong> We do not offer financial advice or locked AI decisions. We help you build and rebalance a robust, diversified portfolio across four pillars: <strong>Equities</strong>, <strong>Sukuk</strong> (Islamic Bonds), <strong>Commodities</strong>, and <strong>Cash/Private</strong>.
+    </p>
+</div>
+"""))
     
-    # Knappen er nu placeret lige under boksen uden lange mellemsider, så den er let synlig på telefonen
-    if st.button("Kom i gang ➔"):
+    # Stor, klar knap rykket højt op for nem betjening på telefonen
+    start_btn_text = _t("Opsæt dit porteføljestyringsværktøj ➔", "Setup your portfolio management tool ➔")
+    if st.button(start_btn_text, use_container_width=True):
         st.session_state.step = 2
         st.rerun()
 
 
 # --- TRIN 2: LOGIN & PROFILOPRETTELSE ---
 elif st.session_state.step == 2:
-    st.subheader("Opret din profil eller log ind")
-    st.write("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.")
+    st.subheader(_t("Opret din profil eller log ind", "Create your profile or sign in"))
+    st.write(_t("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.", "Your details are stored securely so your personal portfolio and weekly briefings sync automatically."))
     
     col_l1, col_l2 = st.columns(2)
     with col_l1:
-        login_email = st.text_input("Indtast din E-mail", placeholder="navn@gmail.com", value=st.session_state.user_email)
+        login_email = st.text_input("E-mail", placeholder="navn@gmail.com", value=st.session_state.user_email)
     with col_l2:
-        login_password = st.text_input("Indtast din adgangskode", type="password")
+        login_password = st.text_input(_t("Adgangskode", "Password"), type="password")
 
     is_new_user = False
     db_profile = None
 
     if login_email and "@" in login_email and login_password:
-        with st.spinner("Forbinder til profil..."):
+        with st.spinner(_t("Forbinder til profil...", "Connecting to profile...")):
             response = requests.get(f"{DATABASE_URL}?email={login_email}&password={login_password}", timeout=10)
             if response.status_code == 200:
                 res_data = response.json()
@@ -768,25 +805,25 @@ elif st.session_state.step == 2:
                     st.session_state.frequency = db_profile.get("frequency", "Weekly")
                     st.session_state.user_email = login_email
                     st.session_state.is_logged_in = True
-                    st.success(f"Velkommen tilbage, {st.session_state.user_name}!")
+                    st.success(_t(f"Velkommen tilbage, {st.session_state.user_name}!", f"Welcome back, {st.session_state.user_name}!"))
                 elif res_data.get("status") == "incorrect_password":
-                    st.error("Forkert adgangskode for denne e-mailadresse.")
+                    st.error(_t("Forkert adgangskode for denne e-mailadresse.", "Incorrect password for this email address."))
                 elif res_data.get("status") == "not_found":
                     is_new_user = True
 
     if is_new_user:
-        st.info("E-mailen blev ikke fundet. Udfyld felterne nedenfor for at oprette en ny profil:")
+        st.info(_t("E-mailen blev ikke fundet. Udfyld felterne nedenfor for at oprette en ny profil:", "Email not found. Fill in the fields below to create a new profile:"))
         col_s1, col_s2 = st.columns(2)
         with col_s1:
-            confirm_password = st.text_input("Bekræft adgangskode", type="password")
+            confirm_password = st.text_input(_t("Bekræft adgangskode", "Confirm password"), type="password")
         with col_s2:
-            signup_name = st.text_input("Dit fulde navn", value="Investor")
+            signup_name = st.text_input(_t("Dit fulde navn", "Your full name"), value="Investor")
         
-        if st.button("📝 Registrer profil"):
+        if st.button(_t("📝 Registrer profil", "📝 Register profile"), use_container_width=True):
             if login_password != confirm_password:
-                st.error("Adgangskoderne matcher ikke!")
+                st.error(_t("Adgangskoderne matcher ikke!", "Passwords do not match!"))
             elif not signup_name:
-                st.error("Udfyld venligst dit navn.")
+                st.error(_t("Udfyld venligst dit navn.", "Please enter your name."))
             else:
                 status = save_user_portfolio_to_db(
                     email=login_email,
@@ -801,109 +838,128 @@ elif st.session_state.step == 2:
                     st.session_state.user_name = signup_name
                     st.session_state.user_email = login_email
                     st.session_state.is_logged_in = True
-                    st.success("Profilen blev oprettet!")
+                    st.success(_t("Profilen blev oprettet!", "Profile created!"))
                     st.session_state.step = 3
                     st.rerun()
                 else:
-                    st.error("Fejl under oprettelsen. Prøv igen.")
+                    st.error(_t("Fejl under oprettelsen. Prøv igen.", "Registration failed. Try again."))
 
     # Navigationsknapper
+    st.write(" ")
     col_prev, col_next = st.columns(2)
     with col_prev:
-        if st.button("⬅ Tilbage"):
+        if st.button("⬅ " + _t("Tilbage", "Back"), use_container_width=True):
             st.session_state.step = 1
             st.rerun()
     with col_next:
         if st.session_state.is_logged_in:
-            if st.button("Næste trin ➔"):
+            if st.button(_t("Næste trin", "Next step") + " ➔", use_container_width=True):
                 st.session_state.step = 3
                 st.rerun()
 
 
-# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING ---
+# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (NU MED SLIDERE & SUM-TJEK) ---
 elif st.session_state.step == 3:
-    st.subheader("Definer din investeringsprofil")
+    st.subheader(_t("Definer din investeringsprofil", "Define your investment profile"))
     
     col_n1, col_n2 = st.columns(2)
     with col_n1:
-        st.session_state.user_name = st.text_input("Dit navn i rapporten:", value=st.session_state.user_name)
+        st.session_state.user_name = st.text_input(_t("Dit navn i rapporten:", "Your name in the report:"), value=st.session_state.user_name)
     with col_n2:
-        st.session_state.user_email = st.text_input("E-mailadresse til briefinger:", value=st.session_state.user_email)
+        st.session_state.user_email = st.text_input(_t("E-mailadresse til briefinger:", "Email address for briefings:"), value=st.session_state.user_email)
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         horizon_options = ["1-3 years", "3-7 years", "7-15 years", "15+ years"]
         horizon_index = horizon_options.index(st.session_state.horizon) if st.session_state.horizon in horizon_options else 2
-        st.session_state.horizon = st.selectbox("Investeringshorisont:", horizon_options, index=horizon_index)
+        st.session_state.horizon = st.selectbox(_t("Investeringshorisont:", "Investment horizon:"), horizon_options, index=horizon_index)
     with col_s2:
         freq_options = ["Daily", "Weekly", "Bi-weekly", "Monthly"]
         freq_index = freq_options.index(st.session_state.frequency) if st.session_state.frequency in freq_options else 1
-        st.session_state.frequency = st.selectbox("Hvor ofte ønsker du briefing?", freq_options, index=freq_index)
+        st.session_state.frequency = st.selectbox(_t("Hvor ofte ønsker du briefing?", "How often do you want briefings?"), freq_options, index=freq_index)
 
     st.write("---")
-    st.subheader("Angiv din ønskede mål-allokering (Må tilsammen give 100%)")
+    st.subheader(_t("Angiv din ønskede mål-allokering", "Specify your target asset allocation"))
+    st.write(_t("Justere sliderne nedenfor. Din samlede vægtning skal give præcis 100%.", "Adjust the sliders below. Your total allocation must equal exactly 100%."))
     
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        target_stocks = st.number_input("Equities (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Aktier", 25.0)))
-    with col2:
-        target_sukuk = st.number_input("Sukuk (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Sukuk", 25.0)))
-    with col3:
-        target_commodities = st.number_input("Commodities (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Råvarer", 25.0)))
-    with col4:
-        target_cash = st.number_input("Cash/Private (%)", min_value=0.0, max_value=100.0, value=float(st.session_state.targets.get("Kontanter/Private", 25.0)))
+    # Skift til brugervenlige slidere frem for plus/minus-knapper
+    target_stocks = st.slider(_t("Equities (Aktier) %", "Equities %"), 0, 100, int(st.session_state.targets.get("Aktier", 25.0)))
+    target_sukuk = st.slider(_t("Sukuk %", "Sukuk %"), 0, 100, int(st.session_state.targets.get("Sukuk", 25.0)))
+    target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities %"), 0, 100, int(st.session_state.targets.get("Råvarer", 25.0)))
+    target_cash = st.slider(_t("Cash/Private %", "Cash/Private %"), 0, 100, int(st.session_state.targets.get("Kontanter/Private", 25.0)))
 
-    # Normaliser vægte
+    # Beregn summen og giv intuitiv visuel feedback
     total_target = target_stocks + target_sukuk + target_commodities + target_cash
-    if total_target > 0:
-        st.session_state.targets = {
-            "Aktier": (target_stocks / total_target) * 100.0,
-            "Sukuk": (target_sukuk / total_target) * 100.0,
-            "Råvarer": (target_commodities / total_target) * 100.0,
-            "Kontanter/Private": (target_cash / total_target) * 100.0
-        }
+    
+    if total_target != 100:
+        difference = 100 - total_target
+        action_word = _t("tilføje", "add") if difference > 0 else _t("fjerne", "remove")
+        st.warning(_t(
+            f"⚠️ Allokeringen skal give 100% tilsammen. Nuværende sum: {total_target}%. Du mangler at {action_word} {abs(difference)}%.",
+            f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to {action_word} {abs(difference)}%."
+        ))
     else:
-        st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allocation is exactly 100%! You can now proceed."))
+        st.session_state.targets = {
+            "Aktier": float(target_stocks),
+            "Sukuk": float(target_sukuk),
+            "Råvarer": float(target_commodities),
+            "Kontanter/Private": float(target_cash)
+        }
 
-    # Navigationsknapper
+    # Navigationsknapper - Deaktiver næste trin, hvis mål-vægtene ikke giver 100%
+    st.write(" ")
     col_prev, col_next = st.columns(2)
     with col_prev:
-        if st.button("⬅ Tilbage"):
+        if st.button("⬅ " + _t("Tilbage", "Back"), use_container_width=True):
             st.session_state.step = 2
             st.rerun()
     with col_next:
-        if st.button("Næste trin ➔"):
+        st.button(
+            _t("Næste trin", "Next step") + " ➔", 
+            use_container_width=True, 
+            disabled=(total_target != 100),
+            key="next_to_step4"
+        )
+        if st.session_state.get("next_to_step4"):
             st.session_state.step = 4
             st.rerun()
 
 
-# --- TRIN 4: PORTEFØLJEOPBYGNING ---
+# --- TRIN 4: PORTEFØLJEOPBYGNING (RETTER SESSION STATE FEJLEN) ---
 elif st.session_state.step == 4:
-    st.subheader("Indtast dine nuværende aktiver")
+    st.subheader(_t("Indtast dine nuværende aktiver", "Input your current holdings"))
     
-    is_new_investor = st.checkbox("Jeg er helt ny investor (starter fra bunden med tom portefølje)")
+    # Gemmes nu stabilt i session-state så det huskes mellem trin
+    st.session_state.is_new_investor = st.checkbox(
+        _t("Jeg er helt ny investor (starter fra bunden med tom portefølje)", "I am a completely new investor (starting from scratch with an empty portfolio)"),
+        value=st.session_state.is_new_investor
+    )
 
     selected_new_sectors = []
-    if is_new_investor:
-        st.write("Vælg de delsektorer og temaer, du gerne vil opbygge eksponering mod fremadrettet:")
-        selected_new_sectors = st.multiselect("Vælg fokusområder:", options=TARGET_SUBSECTORS, default=["Pharmaceuticals & Biotech", "Clean Energy & Wind", "Semiconductors & Hardware"])
+    if st.session_state.is_new_investor:
+        # Expander-menu med simple afkrydsningsfelter løser problemet med at tastaturet popper op og menuen hopper
+        with st.expander(_t("Vælg de sektorer du vil opbygge eksponering mod ▾", "Select the sectors you want to build exposure to ▾")):
+            for sector in TARGET_SUBSECTORS:
+                if st.checkbox(sector, value=(sector in ["Pharmaceuticals & Biotech", "Clean Energy & Wind", "Semiconductors & Hardware"])):
+                    selected_new_sectors.append(sector)
     else:
-        is_manual = st.checkbox("Er dette et manuelt aktiv? (F.eks. kontantbeholdning hos Saxo, private placements, unoterede selskaber)")
+        is_manual = st.checkbox(_t("Er dette et manuelt aktiv? (F.eks. kontantbeholdning, unoterede selskaber)", "Is this a manual asset? (e.g., cash, private equity)"))
 
         if is_manual:
             col_m1, col_m2 = st.columns(2)
             with col_m1:
-                manual_name = st.text_input("Navn på aktiv:", placeholder="F.eks. Saxo Kontant DKK, Nordnet Depot")
+                manual_name = st.text_input(_t("Navn på aktiv:", "Asset name:"), placeholder="F.eks. Saxo Kontant DKK")
             with col_m2:
-                manual_value = st.number_input("Samlet værdi i DKK:", min_value=1, value=1000)
+                manual_value = st.number_input(_t("Samlet værdi i DKK:", "Total value in DKK:"), min_value=1, value=1000)
                 
             col_m3, col_m4 = st.columns(2)
             with col_m3:
-                manual_category = st.selectbox("Aktivklasse:", ["Cash/Private", "Sukuk", "Commodities"])
+                manual_category = st.selectbox(_t("Aktivklasse:", "Asset class:"), ["Cash/Private", "Sukuk", "Commodities"])
             with col_m4:
-                manual_sector = st.selectbox("Delsektor:", TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
+                manual_sector = st.selectbox(_t("Delsektor:", "Sub-sector:"), TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
                 
-            if st.button("➕ Tilføj manuelt aktiv"):
+            if st.button(_t("➕ Tilføj manuelt aktiv", "➕ Add manual asset"), use_container_width=True):
                 if manual_name:
                     virtual_ticker = f"PVT_{manual_name.upper().replace(' ', '_')}"
                     st.session_state.investor_holdings.append({
@@ -915,17 +971,17 @@ elif st.session_state.step == 4:
                         "manual_value": manual_value,
                         "Kurs": manual_value
                     })
-                    st.success(f"Tilføjede {manual_name} til din portefølje.")
+                    st.success(_t(f"Tilføjede {manual_name}.", f"Added {manual_name}."))
                     time.sleep(1)
                     st.rerun()
         else:
-            search_query = st.text_input("🔍 Søg efter selskabsnavn eller ticker (f.eks. 'Novo Nordisk', 'Microsoft', 'Agnico Eagle'):")
+            search_query = st.text_input(_t("🔍 Søg efter selskab eller ticker:", "🔍 Search by company name or ticker:"))
 
             if search_query:
                 search_results = search_tickers_by_name_multi(search_query)
                 if search_results:
                     options_format = [f"{r['name']} ({r['symbol']})" for r in search_results]
-                    selected_option_str = st.selectbox("Vælg det rigtige aktiv fra listen:", options_format)
+                    selected_option_str = st.selectbox(_t("Vælg det rigtige aktiv fra listen:", "Select the correct asset:"), options_format)
                     
                     selected_idx = options_format.index(selected_option_str)
                     target_asset = search_results[selected_idx]
@@ -945,11 +1001,11 @@ elif st.session_state.step == 4:
                         
                         col_shares, col_add = st.columns([1, 1])
                         with col_shares:
-                            shares_to_add = st.number_input("Antal aktier ejet:", min_value=1, value=10)
+                            shares_to_add = st.number_input(_t("Antal aktier ejet:", "Shares owned:"), min_value=1, value=10)
                         with col_add:
                             st.write(" ")
                             st.write(" ")
-                            if st.button("➕ Tilføj til min portefølje"):
+                            if st.button(_t("➕ Tilføj til min portefølje", "➕ Add to portfolio"), use_container_width=True):
                                 exists = False
                                 for h in st.session_state.investor_holdings:
                                     if h["Ticker"] == resolved_ticker:
@@ -965,15 +1021,15 @@ elif st.session_state.step == 4:
                                         "Sector": sub_sec,
                                         "Kurs": 0.0
                                     })
-                                st.success(f"Tilføjede {shares_to_add} stk. {comp_name} til din liste.")
+                                st.success(_t(f"Tilføjede {shares_to_add} stk. {comp_name}.", f"Added {shares_to_add} shares of {comp_name}."))
                                 time.sleep(1)
                                 st.rerun()
                     except Exception as e:
                         st.error(f"Kunne ikke hente data for {resolved_ticker}: {str(e)}")
 
     st.write("---")
-    st.write("### Dine aktive positioner:")
-    if st.session_state.investor_holdings:
+    st.write(_t("### Dine aktive positioner:", "### Your active holdings:"))
+    if st.session_state.investor_holdings and not st.session_state.is_new_investor:
         holdings_df = pd.DataFrame(st.session_state.investor_holdings)
         holdings_df['Category_Display'] = holdings_df['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
         
@@ -981,12 +1037,12 @@ elif st.session_state.step == 4:
             holdings_df,
             num_rows="dynamic",
             column_config={
-                "Company Name": st.column_config.TextColumn("Navn", disabled=True),
+                "Company Name": st.column_config.TextColumn(_t("Navn", "Name"), disabled=True),
                 "Ticker": st.column_config.TextColumn("Ticker", disabled=True),
-                "Shares": st.column_config.NumberColumn("Antal", min_value=1),
-                "Category_Display": st.column_config.TextColumn("Aktivklasse", disabled=True),
-                "Sector": st.column_config.TextColumn("Delsektor", disabled=True),
-                "manual_value": st.column_config.NumberColumn("Manuel værdi (DKK)", min_value=0)
+                "Shares": st.column_config.NumberColumn(_t("Antal", "Shares"), min_value=1),
+                "Category_Display": st.column_config.TextColumn(_t("Aktivklasse", "Asset class"), disabled=True),
+                "Sector": st.column_config.TextColumn(_t("Delsektor", "Sub-sector"), disabled=True),
+                "manual_value": st.column_config.NumberColumn(_t("Manuel værdi (DKK)", "Manual value (DKK)"), min_value=0)
             },
             use_container_width=True,
             key="holdings_editor"
@@ -995,57 +1051,85 @@ elif st.session_state.step == 4:
         if not edited_holdings.equals(holdings_df):
             st.session_state.investor_holdings = edited_holdings.to_dict(orient="records")
             st.rerun()
+            
+        if st.button(_t("💾 Gem ændringer i min profil", "💾 Save changes to my profile"), use_container_width=True):
+            status = save_user_portfolio_to_db(
+                email=st.session_state.user_email,
+                password=login_password,
+                holdings=st.session_state.investor_holdings,
+                targets=st.session_state.targets,
+                horizon=st.session_state.horizon,
+                name=st.session_state.user_name,
+                frequency=st.session_state.frequency
+            )
+            if status == "success":
+                st.success(_t("Ændringerne blev gemt på din profil!", "Changes saved successfully!"))
+    elif st.session_state.is_new_investor:
+        st.info(_t("Nybegynder-status aktiveret. Du behøver ikke indtaste beholdninger.", "New investor status activated. No holdings required."))
     else:
-        st.info("Porteføljen er tom lige nu. Tilføj aktiver herover for at komme videre.")
+        st.info(_t("Porteføljen er tom lige nu. Tilføj aktiver herover for at komme videre.", "Your portfolio is empty. Add assets above to proceed."))
 
     # Navigationsknapper
+    st.write(" ")
     col_prev, col_next = st.columns(2)
     with col_prev:
-        if st.button("⬅ Tilbage"):
+        if st.button("⬅ " + _t("Tilbage", "Back"), use_container_width=True):
             st.session_state.step = 3
             st.rerun()
     with col_next:
-        if st.button("Næste trin ➔"):
+        if st.button(_t("Næste trin", "Next step") + " ➔", use_container_width=True):
             st.session_state.step = 5
             st.rerun()
 
 
-# --- TRIN 5: INSTANT BRIEFING & RUN ---
+# --- TRIN 5: WATCHLIST & AKTIVERING (MED DIREKTE NAVIGATION VED FEJL) ---
 elif st.session_state.step == 5:
-    st.subheader("Watchlist & Aktiver dit LLM Council")
+    st.subheader(_t("Udsendelse & Aktiver dit LLM Council", "Delivery & Activate your LLM Council"))
     
-    watchlist_input = st.text_input("Monitorer selskaber i Watchlist (kommasepareret):", "TRMB, SAP, SPSK, AEM, NEM")
+    watchlist_input = st.text_input(_t("Monitorer selskaber i Watchlist (kommasepareret):", "Monitor tickers in your Watchlist (comma-separated):"), "TRMB, SAP, SPSK, AEM, NEM")
     watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
 
     st.write("---")
     
+    # 1. VALIDERING OG SMART NAVIGERINGS-GENVEJ
+    validation_passed = True
+    if not st.session_state.is_new_investor and not st.session_state.investor_holdings:
+        validation_passed = False
+        st.error(_t(
+            "⚠️ Fejl: Du skal tilføje mindst én aktiv position under Trin 4 for at kunne generere rapporten.",
+            "⚠️ Error: You must add at least one active position under Step 4 to run your briefing."
+        ))
+        # UX Rettelse: En direkte knap, der tager dig direkte tilbage til Trin 4 uden nulstilling
+        if st.button(_t("Gå direkte til Trin 4 for at tilføje aktiver ➔", "Go directly to Step 4 to add assets ➔"), use_container_width=True):
+            st.session_state.step = 4
+            st.rerun()
+            
+    elif not st.session_state.user_email or "@" not in st.session_state.user_email:
+        validation_passed = False
+        st.error(_t("⚠️ Fejl: Du mangler at angive en gyldig e-mailadresse i din profil under Trin 2.", "⚠️ Error: Please enter a valid email address in your profile under Step 2."))
+
+    # 2. AKTIVERINGSKNAPPER
     col_b1, col_b2 = st.columns([2, 1])
     with col_b1:
-        if st.button("🚀 Kør LLM Council & Send min første rapport"):
-            if not st.session_state.user_email or "@" not in st.session_state.user_email:
-                st.error("Udfyld en gyldig e-mailadresse i dit profil-trin først.")
-            elif not st.session_state.investor_holdings:
-                st.error("Tilføj mindst ét aktiv til din portefølje under Trin 4.")
-            else:
-                with st.spinner("Screening mod Sharia- og gældskrav samt dannelse af podcast... Det tager ca. 60 sekunder."):
-                    success, msg = asyncio.run(process_instant_briefing(
-                        st.session_state.user_email,
-                        st.session_state.investor_holdings,
-                        watchlist_list,
-                        st.session_state.targets,
-                        st.session_state.user_name,
-                        st.session_state.horizon,
-                        False,
-                        []
-                    ))
-                    if success:
-                        st.success(f"Udført! {msg}")
-                        st.balloons()
-                    else:
-                        st.error(f"Fejl: {msg}")
+        if st.button("🚀 " + _t("Kør LLM Council & Send min første rapport", "Run LLM Council & Send my first report"), use_container_width=True, disabled=(not validation_passed)):
+            with st.spinner(_t("Screening mod Sharia- og gældskrav samt dannelse af podcast... Det tager ca. 60 sekunder.", "Screening against Shariah debt-limits and compiling your podcast... This takes about 60 seconds.")):
+                success, msg = asyncio.run(process_instant_briefing(
+                    st.session_state.user_email,
+                    st.session_state.investor_holdings,
+                    watchlist_list,
+                    st.session_state.targets,
+                    st.session_state.user_name,
+                    st.session_state.horizon,
+                    st.session_state.is_new_investor,
+                    []
+                ))
+                if success:
+                    st.success(f"Udført! {msg}")
+                    st.balloons()
+                else:
+                    st.error(f"Fejl: {msg}")
     with col_b2:
-        if st.session_state.investor_holdings:
-            # Udfyld vægte og delsektorer korrekt i dit Excel-ark
+        if st.session_state.investor_holdings and validation_passed:
             excel_bytes = generate_excel_template_bytes(
                 st.session_state.investor_holdings, 
                 watchlist_list,
@@ -1053,15 +1137,24 @@ elif st.session_state.step == 5:
                 {}
             )
             st.download_button(
-                label="📥 Hent mit Excel-ark",
+                label="📥 " + _t("Hent mit Excel-ark", "Download Excel Sheet"),
                 data=excel_bytes,
                 file_name=f"{st.session_state.user_name}_Live_Portfolio.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
 
-    if st.button("⬅ Start forfra (Gå til trin 1)"):
-        st.session_state.step = 1
-        st.rerun()
+    # Navigationsknapper
+    st.write(" ")
+    col_prev, col_reset = st.columns(2)
+    with col_prev:
+        if st.button("⬅ " + _t("Tilbage", "Back"), use_container_width=True):
+            st.session_state.step = 4
+            st.rerun()
+    with col_reset:
+        if st.button("🔄 " + _t("Start forfra (Trin 1)", "Start over (Step 1)"), use_container_width=True):
+            st.session_state.step = 1
+            st.rerun()
 
 
 # =====================================================================
@@ -1179,7 +1272,7 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
     output_mp3 = "llm_council_podcast.mp3"
     podcast_compiled = False
     
-    # Opret en ren tekstbeskrivelse til podcast-værterne i stedet for tung e-mail HTML
+    # Ren tekstbeskrivelse til podcasten i stedet for den tunge HTML-kode
     clean_data_text = (
         f"VIP Client: {user_name}\n"
         f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
@@ -1216,19 +1309,19 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
 
 
 # =====================================================================
-#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN (BIBEHOLDER DIN ORIGINALE STYLING)
+#  NATIVE, RESPONSIV DISCLAIMER (LØSER JURIDISK ANVARS-PROBLEMET)
 # =====================================================================
-render_html("""
-<div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px;">
-    <h4 style="font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Juridisk ansvarsfraskrivelse</h4>
-    <p style="font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
-        LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. Vi tilbyder <strong>ikke</strong> autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.
-    </p>
-    <p style="font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
-        Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. Du bør <strong>altid</strong> basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.
-    </p>
-    <p style="font-size: 14px; margin-bottom: 0; line-height: 1.5;">
-        For en uafhængig og manuel revision af gældsforhold, regnskabstal og Shariah-compliance for individuelle værdipapirer anbefaler vi at anvende det anerkendte værktøj <a href="https://zoya.finance/" target="_blank" style="font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
-    </p>
-</div>
-""")
+st.write(" ")
+st.warning(_t(
+    "Legal Disclaimer:\n\n"
+    "LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. "
+    "Vi tilbyder IKKE autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.\n\n"
+    "Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. "
+    "Du bør altid basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.\n\n"
+    "For en uafhængig og manuel revision af gældsforhold, regnskabstal og compliance anbefaler vi at anvende det anerkendte værktøj Zoya Finance Platform.",
+    
+    "Legal Disclaimer:\n\n"
+    "The LLM Council is an automated, AI-driven informational and educational inspiration tool. It is NOT a licensed financial advisor, nor does it provide personalized investment advice or regulatory financial mandates.\n\n"
+    "Financial markets carry inherent risks, and Shariah-compliance interpretations can vary across different scholars and madhabs. You must always base your final investment decisions on your own research, personal convictions, and common sense.\n\n"
+    "To manually audit and double-check Shariah-compliance, financial health, or business profiles, we highly recommend utilizing the official Zoya Finance Platform."
+))
