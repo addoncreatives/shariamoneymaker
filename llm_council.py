@@ -18,7 +18,7 @@ from email import encoders
 # ---------------------------------------------------------------------
 try:
     import langsmith.client
-    # Omgår sikkerhedsfejlen ved at gøre valideringsfunktionen inaktiv [2.2.1]
+    # Omgår sikkerhedsfejlen ved at gøre valideringsfunktionen inaktiv
     langsmith.client._validate_public_prompt_pull = lambda *args, **kwargs: None
     print("Security patch: LangSmith public prompt validation bypassed successfully.")
 except ImportError:
@@ -898,13 +898,21 @@ class PodcastAgent:
             "user_instructions": user_instructions_content
         }
         
-        print("Genererer struktureret podcast (Sara & Marcus) med fuld 5-mands synergi på engelsk...")
-        audio_path = generate_podcast(
-            text=report_html,
-            tts_model="edge",
-            conversation_config=custom_config
-        )
-        return audio_path
+        try:
+            print("Igangsætter generate_podcast...")
+            audio_path = generate_podcast(
+                text=report_html,  # Sender den rene data-tekst direkte ind
+                tts_model="edge",
+                conversation_config=custom_config
+            )
+            print(f"generate_podcast færdig. Resultat-sti: {audio_path}")
+            if audio_path and os.path.exists(audio_path):
+                print(f"Lydfilen eksisterer og fylder {os.path.getsize(audio_path)} bytes.")
+            return audio_path
+        except Exception as e:
+            print(f"Fejl under generering af podcast-lyd: {str(e)}")
+            traceback.print_exc()
+            raise e
 
 
 # =====================================================================
@@ -970,9 +978,9 @@ def main():
         print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
         print(f"Beregnet delsektor-fordeling: {sector_distribution}")
         
-        # 2. Hent de konkrete positioner (Henter nu reelle tal for Antal og Kurs)
+        # 2. Hent de konkrete positioner
         current_holdings = sheets_agent.get_current_holdings_details()
-        print(f"Hentet {len(current_holdings)} konkrete positioner.")
+        print(f"Hentet {len(current_holdings)} positioner.")
         
         # 3. Hent Watchlist-tickers
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
@@ -1038,12 +1046,12 @@ def main():
         podcast_compiled = False
         podcast_error_section = "" # Denne sektion vil indeholde fejl-loggen direkte i din mail, hvis den fejler!
 
+        current_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
+        current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
+        sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
+
         if GEMINI_API_KEY:
             print("Aktiverer Gemini 3.5 Flash...")
-            current_weights_str = json.dumps(current_portfolio_weights, indent=2, ensure_ascii=False)
-            current_holdings_str = json.dumps(current_holdings, indent=2, ensure_ascii=False)
-            sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
-            
             council_agent = CouncilAgent(GEMINI_API_KEY)
             # Default navn sat til 'Wazir' og horisont sat til '15+ years' for den automatiske baggrundskørsel på GitHub
             council_report_html = council_agent.run_proactive_analysis(
@@ -1057,12 +1065,24 @@ def main():
                 horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
+            # 9. Generer automatisk lyd-podcast
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             try:
-                # Nu risikerer vi ikke at fejlen skjules [3]!
-                generated_file = podcast_agent.generate_podcast_audio(council_report_html, "Wazir")
+                # Opret en ultra-ren tekstbeskrivelse af dataen for at undgå HTML/CSS-forvirring i LLM'en
+                clean_data_text = (
+                    f"VIP Client: Wazir\n"
+                    f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
+                    f"Dynamic sectors:\n{sector_distribution_str}\n\n"
+                    f"Current holdings:\n{current_holdings_str}\n\n"
+                    f"Target focus category tonight: {focus_category} (deficit: {deficit:.2f}%)\n\n"
+                    f"Screened compliant stocks:\n"
+                )
+                for s in detailed_candidates_data:
+                    clean_data_text += f"- {s.get('name')} ({s.get('symbol')}): Sector: {s.get('sector')}, Industry: {s.get('industry')}. Price: {s.get('current_price')} {s.get('currency')}. Revenue Growth: {s.get('revenue_growth')}, Operating Margin: {s.get('operating_margins')}, FCF: {s.get('free_cash_flow')}. Debt Ratio: {s.get('debt_ratio')}.\n"
+                
+                # Vi sender den ukomplicerede og rene data til podcasten i stedet for den tunge HTML-kode
+                generated_file = podcast_agent.generate_podcast_audio(clean_data_text, "Wazir")
                 if generated_file and os.path.exists(generated_file):
                     import shutil
                     shutil.copyfile(generated_file, output_mp3)
