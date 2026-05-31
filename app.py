@@ -51,7 +51,7 @@ st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳�
 def render_html(html_str: str):
     """
     Renser HTML-strengen for linjeskift og indrykninger, så Streamlits
-    Markdown-parser aldrig forveksler HTML med en rå kodeblok.
+    Markdown-parser aldrig forveksler HTML med en rå kode blok.
     """
     clean_html = "".join([line.strip() for line in html_str.splitlines()])
     st.markdown(clean_html, unsafe_allow_html=True)
@@ -83,6 +83,7 @@ def _t(da: str, sv: str, no: str, fi: str, en: str) -> str:
 
 # =====================================================================
 #  CONFIGURATION & STANDARD TARGET WEIGHTS
+#  (Opdateret med europæisk handlede, KID-godkendte UCITS-aktiver!)
 # =====================================================================
 
 DISPLAY_CATEGORIES = {
@@ -134,7 +135,7 @@ TARGET_SUBSECTORS = [
     "Water Infrastructure & Desalination"
 ]
 
-# DET STATISKE LYNHURTIGE KARTOTEK
+# DET STATISKE LYNHURTIGE KARTOTEK (Opdateret med EU UCITS-modparter)
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
     "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
@@ -153,14 +154,12 @@ STATIC_TICKER_MAP = {
     "NEM": ("Råvarer", "Industrial Metals & Copper"),
     "AEM": ("Råvarer", "Industrial Metals & Copper"),
     "RGLD": ("Råvarer", "Mining & Royalty Streams"),
-    "SPSK": ("Sukuk", "Sukuk & Fixed Income"),
-    "SKUK": ("Sukuk", "Sukuk & Fixed Income"),
+    "FSUK.L": ("Sukuk", "Sukuk & Fixed Income"),      # Franklin Templeton Global Sukuk UCITS ETF (EU/Saxo ready)
+    "SGLN.L": ("Råvarer", "Mining & Royalty Streams"), # iShares Physical Gold ETC (EU/Saxo ready)
     "MSAU.L": ("Aktier", "Regional & Thematic ETFs"),
-    "IGDA.L": ("Aktier", "Global Equity ETFs"),
-    "HLAL": ("Aktier", "Regional & Thematic ETFs"),
-    "UMMA": ("Aktier", "Global Equity ETFs"),
-    "ISWD.L": ("Aktier", "Global Equity ETFs"),
-    "ISUS.L": ("Aktier", "Regional & Thematic ETFs"),
+    "IGDA.L": ("Aktier", "Global Equity ETFs"),        # Invesco Dow Jones Islamic UCITS ETF (EU/Saxo ready)
+    "ISWD.DE": ("Aktier", "Global Equity ETFs"),       # iShares MSCI World Islamic UCITS ETF (EU/Saxo ready)
+    "ISUS.DE": ("Aktier", "Regional & Thematic ETFs"),  # iShares MSCI USA Islamic UCITS ETF (EU/Saxo ready)
     "HIWS.L": ("Aktier", "Global Equity ETFs")
 }
 
@@ -182,19 +181,30 @@ failsafe_db = load_global_db_from_github()
 
 GLOBAL_COMPLIANT_GROWTH_POOL = {
     "Aktier": [
-        "MSAU.L", "IGDA.L", "HLAL", "UMMA", "ISWD.L", "ISUS.L", "HIWS.L",
+        "IGDA.L", "ISWD.DE", "ISUS.DE", "MSAU.L", "HIWS.L",
         "TRMB", "SAP", "IFX.DE", "MSFT", "ASML", "NVDA", "ADBE", "CRM", "SNPS", 
         "NOVO-B.CO", "6869.T", "AZN.ST", "REGN", "ISRG", "LLY", "VRTX", 
         "VWS.CO", "NKT.CO", "FLS.CO", "ROCK-B.CO"
     ],
     "Sukuk": [
-        "SPSK", "SKUK"
+        "FSUK.L"
     ],
     "Råvarer": [
-        "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
+        "SGLN.L", "WPM", "NEM", "GOLD", "AEM", "FNV", "RGLD", "BHP", "RIO", "FCX", "VALE"
     ],
     "Kontanter/Private": [
-        "SPSK", "SKUK"
+        "FSUK.L"
+    ]
+}
+
+# Skabelon til de 5 største enkeltaktier i HLAL, så private investorer kan klone den uden om KID-låsen!
+STATIC_ETF_CLONES = {
+    "HLAL": [
+        {"Company Name": "Microsoft Corp", "Ticker": "MSFT", "Shares": 5, "Category": "Aktier", "Sector": "Enterprise Software & SaaS", "Kurs": 0.0},
+        {"Company Name": "Apple Inc", "Ticker": "AAPL", "Shares": 5, "Category": "Aktier", "Sector": "Semiconductors & Hardware", "Kurs": 0.0},
+        {"Company Name": "NVIDIA Corp", "Ticker": "NVDA", "Shares": 4, "Category": "Aktier", "Sector": "Semiconductors & Hardware", "Kurs": 0.0},
+        {"Company Name": "Alphabet Inc (Google)", "Ticker": "GOOGL", "Shares": 3, "Category": "Aktier", "Sector": "Artificial Intelligence & Cloud Computing", "Kurs": 0.0},
+        {"Company Name": "Salesforce Inc", "Ticker": "CRM", "Shares": 2, "Category": "Aktier", "Sector": "Enterprise Software & SaaS", "Kurs": 0.0}
     ]
 }
 
@@ -246,6 +256,107 @@ def search_tickers_by_name_multi(query: str) -> list:
     except Exception:
         pass
     return []
+
+
+# =====================================================================
+#  FEJLSIKRET MATEMATISK PASSIV REBALANCERINGS BEREGNER (CASH-FLOW ONLY)
+# =====================================================================
+def calculate_passive_rebalancing_distribution(holdings_list: list, target_allocations: dict, monthly_deposit: float) -> dict:
+    """
+    Beregner præcis hvordan dine nye opsparde månedlige kontanter skal fordeles på de 4 søjler,
+    så du passivt genopretter balancen helt uden at skulle sælge (og dermed spare kurtage).
+    """
+    distribution_results = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+    if monthly_deposit <= 0:
+        return distribution_results
+        
+    total_mv = 0.0
+    category_values = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+    
+    for item in holdings_list:
+        category = item.get("Category", "Aktier")
+        symbol = item.get("Ticker", "Other")
+        if "PVT_" in symbol or "CASH_" in symbol:
+            item_mv = float(item.get("manual_value", 1000))
+        else:
+            kurs = item.get("Kurs", 0.0)
+            if kurs <= 0.0:
+                try:
+                    t = yf.Ticker(symbol)
+                    kurs = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                except Exception:
+                    kurs = 1.0
+            item_mv = (kurs * float(item.get("Shares", 1)))
+            
+        total_mv += item_mv
+        if category in category_values:
+            category_values[category] += item_mv
+
+    new_total_mv = total_mv + monthly_deposit
+    
+    # Beregn manglende beløb i forhold til nye målvægte
+    deficits = {}
+    total_deficit = 0.0
+    for cat, target_pct in target_allocations.items():
+        new_target_val = new_total_mv * (target_pct / 100.0)
+        current_val = category_values.get(cat, 0.0)
+        diff = new_target_val - current_val
+        if diff > 0:
+            deficits[cat] = diff
+            total_deficit += diff
+        else:
+            deficits[cat] = 0.0
+
+    # Fordel de månedlige kontanter pro-rata ud fra det allokeringsgab der skal lukkes
+    if total_deficit > 0:
+        for cat, diff in deficits.items():
+            distribution_results[cat] = (diff / total_deficit) * monthly_deposit
+    else:
+        # Hvis porteføljen allerede er i perfekt balance, fordeles pengene ligeligt efter målene
+        for cat, target_pct in target_allocations.items():
+            distribution_results[cat] = (target_pct / 100.0) * monthly_deposit
+            
+    return distribution_results
+
+
+# =====================================================================
+#  INTELLIGENT HTML DEBAT PARSER (TRÆKKER ADVISORS UD FRA E-MAIL RAPPORTEN)
+# =====================================================================
+def parse_debate_and_chairman(html_content: str) -> dict:
+    results = {
+        "Contrarian": "",
+        "First-Principles": "",
+        "Expansionist": "",
+        "Outsider": "",
+        "Executor": "",
+        "Chairman": ""
+    }
+    if not html_content:
+        return results
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_content, "html.parser")
+        divs = soup.find_all("div")
+        for d in divs:
+            style = d.get("style", "")
+            text = d.get_text().strip()
+            if not text:
+                continue
+            if "EF4444" in style or "EF4444" in text or "Contrarian" in text[:45]:
+                results["Contrarian"] = text
+            elif "64748B" in style or "64748B" in text or "First-Principles" in text[:45] or "First Principles" in text[:45]:
+                results["First-Principles"] = text
+            elif "10B981" in style or "10B981" in text or "Expansionist" in text[:45]:
+                results["Expansionist"] = text
+            elif "8B5CF6" in style or "8B5CF6" in text or "Outsider" in text[:45]:
+                results["Outsider"] = text
+            elif "3B82F6" in style or "3B82F6" in text or "Executor" in text[:45]:
+                results["Executor"] = text
+            elif "C5A880" in style or "C5A880" in text or "Chairman" in text[:45] or "Marcus" in text[:45]:
+                results["Chairman"] = text
+    except Exception as e:
+        print(f"BeautifulSoup parsing failed: {str(e)}")
+    return results
 
 
 # =====================================================================
@@ -424,14 +535,14 @@ class ScreenerComplianceAgent:
                     return "Kontanter/Private", "Sukuk & Fixed Income"
                 return v[0], v[1]
 
-        if "sukuk" in sym or sym in ["SPSK", "SKUK"]:
+        if "sukuk" in sym or sym in ["SPSK", "SKUK", "FSUK.L"]:
             if self.target_category == "Kontanter/Private":
                 return "Kontanter/Private", "Sukuk & Fixed Income"
             return "Sukuk", "Sukuk & Fixed Income"
             
         if sym in ["WPM", "FNV", "RGLD"]:
             return "Råvarer", "Mining & Royalty Streams"
-        if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE"] or any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
+        if sym in ["NEM", "GOLD", "AEM", "BHP", "RIO", "FCX", "VALE", "SGLN.L"] or any(w in ind_l for w in ["gold", "silver", "precious metals", "copper", "aluminum"]):
             return "Råvarer", "Industrial Metals & Copper"
 
         if "cash" in sym or "money market" in sec_l:
@@ -490,7 +601,7 @@ class ScreenerComplianceAgent:
                 return {"symbol": symbol, "passed": False, "reason": "Ingen data"}
 
             quote_type = info.get("quoteType", "").upper()
-            is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "MSAU.L", "SKUK"]
+            is_etf = quote_type in ["ETF", "MUTUALFUND"] or symbol in ["IGDA.L", "SPSK", "HLAL", "UMMA", "ISWD.L", "MSAU.L", "SKUK", "FSUK.L", "ISWD.DE", "ISUS.DE", "SGLN.L"]
 
             if is_etf:
                 mapped_cat, mapped_sub = self.map_to_category_and_sector(symbol, "ETF", "ETF")
@@ -746,7 +857,93 @@ class DeliveryAgent:
 
 
 # =====================================================================
+#  DATABASE INTEGRATION (GOOGLE WEB APP)
+# =====================================================================
+def load_user_portfolio_from_db(email: str, password: str) -> dict:
+    if not DATABASE_URL or DATABASE_URL.strip() == "":
+        return None
+    try:
+        response = requests.get(f"{DATABASE_URL}?email={email}&password={password}", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("status") == "success":
+                return data
+    except Exception:
+        pass
+    return None
+
+def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets: dict, horizon: str, name: str, frequency: str) -> str:
+    if not DATABASE_URL or DATABASE_URL.strip() == "":
+        return "no_db"
+    payload = {
+        "email": email, "password": password, "holdings": holdings,
+        "targets": targets, "horizon": horizon, "name": name, "frequency": frequency
+    }
+    try:
+        response = requests.post(DATABASE_URL, json=payload, timeout=15)
+        if response.status_code == 200:
+            return response.json().get("status")
+    except Exception:
+        pass
+    return "error"
+
+
+# =====================================================================
+#  SESSION STATE INITIALIZATION
+# =====================================================================
+if "step" not in st.session_state:
+    st.session_state.step = 1
+if "investor_holdings" not in st.session_state:
+    st.session_state.investor_holdings = []
+if "targets" not in st.session_state:
+    st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+if "horizon" not in st.session_state:
+    st.session_state.horizon = "7-15 years"
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Investor"
+if "frequency" not in st.session_state:
+    st.session_state.frequency = "Weekly"
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
+if "is_logged_in" not in st.session_state:
+    st.session_state.is_logged_in = False
+if "is_new_investor" not in st.session_state:
+    st.session_state.is_new_investor = False
+if "watchlist_list" not in st.session_state:
+    st.session_state.watchlist_list = ["TRMB", "SAP", "SPSK", "AEM", "NEM"]
+
+# Slidervariabler
+if "slider_stocks" not in st.session_state:
+    st.session_state.slider_stocks = int(st.session_state.targets.get("Aktier", 25.0))
+if "slider_sukuk" not in st.session_state:
+    st.session_state.slider_sukuk = int(st.session_state.targets.get("Sukuk", 25.0))
+if "slider_commodities" not in st.session_state:
+    st.session_state.slider_commodities = int(st.session_state.targets.get("Råvarer", 25.0))
+if "slider_cash" not in st.session_state:
+    st.session_state.slider_cash = int(st.session_state.targets.get("Kontanter/Private", 25.0))
+
+# Failsafe lagring af resultater
+if "generated_report" not in st.session_state:
+    st.session_state.generated_report = None
+if "generated_audio_bytes" not in st.session_state:
+    st.session_state.generated_audio_bytes = None
+
+# Sektor research
+if "last_sector_prospects_list" not in st.session_state:
+    st.session_state.last_sector_prospects_list = []
+if "last_research_sector_name" not in st.session_state:
+    st.session_state.last_research_sector_name = None
+if "prospect_ignore_list" not in st.session_state:
+    st.session_state.prospect_ignore_list = []
+
+# Månedlig opsparing til passiv rebalancering
+if "monthly_deposit" not in st.session_state:
+    st.session_state.monthly_deposit = 2000.0
+
+
+# =====================================================================
 #  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
+#  (Defineret FØR trin-evalueringerne kører!)
 # =====================================================================
 async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
     if is_new:
@@ -901,91 +1098,10 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
 
 
 # =====================================================================
-#  DATABASE INTEGRATION (GOOGLE WEB APP)
-# =====================================================================
-def load_user_portfolio_from_db(email: str, password: str) -> dict:
-    if not DATABASE_URL or DATABASE_URL.strip() == "":
-        return None
-    try:
-        response = requests.get(f"{DATABASE_URL}?email={email}&password={password}", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status") == "success":
-                return data
-    except Exception:
-        pass
-    return None
-
-def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets: dict, horizon: str, name: str, frequency: str) -> str:
-    if not DATABASE_URL or DATABASE_URL.strip() == "":
-        return "no_db"
-    payload = {
-        "email": email, "password": password, "holdings": holdings,
-        "targets": targets, "horizon": horizon, "name": name, "frequency": frequency
-    }
-    try:
-        response = requests.post(DATABASE_URL, json=payload, timeout=15)
-        if response.status_code == 200:
-            return response.json().get("status")
-    except Exception:
-        pass
-    return "error"
-
-
-# =====================================================================
-#  SESSION STATE INITIALIZATION
-# =====================================================================
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "investor_holdings" not in st.session_state:
-    st.session_state.investor_holdings = []
-if "targets" not in st.session_state:
-    st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
-if "horizon" not in st.session_state:
-    st.session_state.horizon = "7-15 years"
-if "user_name" not in st.session_state:
-    st.session_state.user_name = "Investor"
-if "frequency" not in st.session_state:
-    st.session_state.frequency = "Weekly"
-if "user_email" not in st.session_state:
-    st.session_state.user_email = ""
-if "is_logged_in" not in st.session_state:
-    st.session_state.is_logged_in = False
-if "is_new_investor" not in st.session_state:
-    st.session_state.is_new_investor = False
-if "watchlist_list" not in st.session_state:
-    st.session_state.watchlist_list = ["TRMB", "SAP", "SPSK", "AEM", "NEM"]
-
-# Slidervariabler
-if "slider_stocks" not in st.session_state:
-    st.session_state.slider_stocks = int(st.session_state.targets.get("Aktier", 25.0))
-if "slider_sukuk" not in st.session_state:
-    st.session_state.slider_sukuk = int(st.session_state.targets.get("Sukuk", 25.0))
-if "slider_commodities" not in st.session_state:
-    st.session_state.slider_commodities = int(st.session_state.targets.get("Råvarer", 25.0))
-if "slider_cash" not in st.session_state:
-    st.session_state.slider_cash = int(st.session_state.targets.get("Kontanter/Private", 25.0))
-
-# Failsafe lagring af resultater
-if "generated_report" not in st.session_state:
-    st.session_state.generated_report = None
-if "generated_audio_bytes" not in st.session_state:
-    st.session_state.generated_audio_bytes = None
-
-# Sektor research
-if "last_sector_prospects_list" not in st.session_state:
-    st.session_state.last_sector_prospects_list = []
-if "last_research_sector_name" not in st.session_state:
-    st.session_state.last_research_sector_name = None
-if "prospect_ignore_list" not in st.session_state:
-    st.session_state.prospect_ignore_list = []
-
-
-# =====================================================================
 #  STREAMLIT UI STEPS
 # =====================================================================
 
-# Diskret status-indikator i toppen (erstatter den gamle stepper-menu)
+# Diskret status-indikator i toppen
 st.caption(_t(
     f"Trin {st.session_state.step} af 5", 
     f"Steg {st.session_state.step} av 5", 
@@ -995,7 +1111,7 @@ st.caption(_t(
 ))
 
 
-# --- TRIN 1: VELKOMST & KORT KONTEKST (SAAS DASHBOARD FOR LOGGET-IND BRUGER) ---
+# --- TRIN 1: VELKOMST & HISTORIE-DREVET ELEVATOR PITCH (KORRIGERET SPROG) ---
 if st.session_state.step == 1:
     if st.session_state.is_logged_in:
         # PERSONLIGT DASHBOARD FOR EKSISTERENDE BRUGERE
@@ -1012,6 +1128,29 @@ if st.session_state.step == 1:
             st.metric(_t("Antal aktive positioner", "Antal aktiva positioner", "Antall aktive posisjoner", "Aktiiviset salkun osat", "Active Holdings"), len(st.session_state.investor_holdings))
         with col_d2:
             st.metric(_t("Briefing-frekvens", "Briefing-frekvens", "Briefing-frekvens", "Briefing-aikataulu", "Briefing Frequency"), st.session_state.frequency)
+
+        # PASSIV CASH-FLOW REBALANCERING DIREKTE PÅ DASHBOARDET
+        if st.session_state.investor_holdings and st.session_state.monthly_deposit > 0:
+            st.write("---")
+            st.subheader("💰 " + _t("Dit månedlige rebalancerings-budget", "Din månatliga ombalanseringsbudget", "Ditt månedlige rebalanceringsbudsjett", "Kuukausittainen tasapainotusbudjettisi", "Your Monthly Rebalancing Budget"))
+            st.write(_t(
+                f"Baseret på din planlagte månedlige opsparing på **{st.session_state.monthly_deposit:,.2f} DKK**, anbefaler rådet, at du fordeler dine *nye* indskud således for at lukke allokeringshullerne passivt helt uden salgskurtager:",
+                f"Baserat på din månatliga sparning på **{st.session_state.monthly_deposit:,.2f} DKK** rekommenderar rådet att du fördelar dina nya insättningar så här för att stänga gappen passivt utan säljavgifter:",
+                f"Basert på din månedlige sparing på **{st.session_state.monthly_deposit:,.2f} DKK** anbefaler rådet at du fordeler dine nye innskudd slik for å lukke hullene passivt uten salgskurtasjer:",
+                f"Kuukausittaisen **{st.session_state.monthly_deposit:,.2f} DKK** säästösi perusteella neuvosto suosittelee, että jaat uudet talletuksesi seuraavasti tasapainottaaksesi salkkusi passiivisesti ilman myyntikuluja:",
+                f"Based on your planned monthly deposit of **{st.session_state.monthly_deposit:,.2f} DKK**, the Council recommends distributing your new capital as follows to passively close the gaps without paying selling fees:"
+            ))
+            
+            rebal_dist = calculate_passive_rebalancing_distribution(st.session_state.investor_holdings, st.session_state.targets, st.session_state.monthly_deposit)
+            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            with col_r1:
+                st.metric(_t("Køb Aktier", "Köp Aktier", "Kjøp Aksjer", "Osta Osakkeita", "Buy Equities"), f"{rebal_dist['Aktier']:,.0f} DKK")
+            with col_r2:
+                st.metric(_t("Køb Sukuk", "Köp Sukuk", "Kjøp Sukuk", "Osta Sukuk", "Buy Sukuk"), f"{rebal_dist['Sukuk']:,.0f} DKK")
+            with col_r3:
+                st.metric(_t("Køb Råvarer", "Köp Råvaror", "Kjøp Råvarer", "Osta Raaka-aineita", "Buy Commodities"), f"{rebal_dist['Råvarer']:,.0f} DKK")
+            with col_r4:
+                st.metric(_t("Gem i Kontanter", "Spara i Kontanter", "Spar i Kontanter", "Säästä Käteisenä", "Keep in Cash"), f"{rebal_dist['Kontanter/Private']:,.0f} DKK")
 
         # Hurtig oversigt over beholdninger
         if st.session_state.investor_holdings:
@@ -1093,7 +1232,7 @@ if st.session_state.step == 1:
         # Visning af de fundne prospekter med interaktiv tilføjelse til watchlist
         if st.session_state.last_sector_prospects_list:
             st.write(" ")
-            st.subheader("📋 " + _t(f"Anbefalede prospects i {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet sektorilla {st.session_state.last_research_sector_name}", f"Recommended prospects in {st.session_state.last_research_sector_name}"))
+            st.subheader("📋 " + _t(f"Anbefalede prospects i {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet salkkuun {st.session_state.last_research_sector_name}", f"Recommended prospects in {st.session_state.last_research_sector_name}"))
             
             for idx, p in enumerate(st.session_state.last_sector_prospects_list):
                 symbol = p.get("symbol", "Other").upper()
@@ -1135,64 +1274,102 @@ if st.session_state.step == 1:
                 st.write("📢 " + _t("Lyt til din briefing her:", "Lyssna på din briefing här:", "Lytt til din briefing her:", "Kuuntele raporttisi tästä:", "Listen to your briefing here:"))
                 st.audio(st.session_state.generated_audio_bytes, format="audio/mp3")
             
+            # INTERAKTIV RÅDS-KARUSEL PÅ FORSIDEN (SWIPE-FUNKTION VIA TABS)
+            debate_data = parse_debate_and_chairman(st.session_state.generated_report)
+            if any(debate_data.values()):
+                st.write(" ")
+                st.write("🗣️ " + _t("Det Digitale Rådskammer (Debat & Beslutning)", "Det Digitala Rådskammaren", "Det Digitale Rådskammer", "Digitaalinen neuvosto", "The Digital Council Chamber"))
+                tab_names = [
+                    "🔴 Contrarian", 
+                    "🟢 Expansionist", 
+                    "🟣 Outsider", 
+                    "🔘 First-Principles", 
+                    "🔵 Executor", 
+                    "👑 Chairman"
+                ]
+                tabs = st.tabs(tab_names)
+                with tabs[0]:
+                    st.info(debate_data.get("Contrarian") or "No comment.")
+                with tabs[1]:
+                    st.success(debate_data.get("Expansionist") or "No comment.")
+                with tabs[2]:
+                    st.warning(debate_data.get("Outsider") or "No comment.")
+                with tabs[3]:
+                    st.markdown(debate_data.get("First-Principles") or "No comment.")
+                with tabs[4]:
+                    st.info(debate_data.get("Executor") or "No comment.")
+                with tabs[5]:
+                    st.success(debate_data.get("Chairman") or "No comment.")
+
+            st.write(" ")
             with st.expander(_t("Læs hele rapporten på skærmen ▾", "Läs hela rapporten på skärmen ▾", "Les hele rapporten på skjermen ▾", "Lue koko raportti näytöllä ▾", "Read Full Report On-Screen ▾")):
                 components.html(st.session_state.generated_report, height=500, scrolling=True)
 
     else:
-        # VELKOMST FOR NYE BRUGERE (IKKE LOGGET IND)
+        # VELKOMST FOR NYE BRUGERE (NARRATIV ELEVATOR PITCH BASERET PÅ DIN HISTORIE)
         render_html(_t("""
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsigtig guide for den modvillige stock picker</h3>
     <p style="margin-bottom: 12px;">
-        Som muslimsk investor i Norden (Saxo Bank, Nordnet, Avanza osv.) har du ikke adgang til automatiserede integrationsløsninger. 
-        Det tvinger dig ofte ud i tidskrævende, manuel screening af Shariah-gældsregler (AAOIFI-standarder) og selskabshistorier.
+        Det hele startede med en dyb frustration: Som muslimsk detailinvestor i Norden (Saxo Bank, Nordnet, Avanza osv.) ønsker man egentlig bare en rolig, passiv og etisk formueopbygning. Men EU's strenge regler (PRIIPs) blokerer for stort set alle Shariah-ETF'er i handelsplatformene på grund af manglende lokale KID-dokumenter.
+    </p>
+    <p style="margin-bottom: 12px;">
+        Dette tvinger dig ud i en umulig blindgyde: Enten må du give køb på din etiske overbevisning for en nem standardløsning, lade helt være med at investere, eller blive tvunget ind i rollen som aktiv <strong>stock picker</strong> – en tidskrævende og uoverskuelig proces med uendelig tidsspild i manuelle regnskabsscanninger.
     </p>
     <p style="margin-bottom: 15px;">
-        <strong>LLM Council er din selvhjulpne makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste AI-beslutninger. Vi hjælper dig med at opbygge og rebalancere en robust, diversificeret portefølje fordelt på fire søjler: <strong>Equities</strong> (Aktier), <strong>Sukuk</strong> (Islamiske Certifikater), <strong>Commodities</strong> (Råvarer) og <strong>Cash/Private</strong>.
+        <strong>LLM Council blev skabt for at bryde denne mur.</strong> Vi fjerner friktionen: Vi prioriterer udelukkende europæisk handlede, KID-godkendte UCITS-ETF'er og enkeltaktier, du rent faktisk må købe i Norden. Derudover hjælper vi dig med at 'klone' de låste US-fonde og fordele din månedlige opsparing passivt og kurtage-frit i en robust 4x25% allokering.
     </p>
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En transparent guide för den medvetne investeraren</h3>
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En transparent guide för den motvillige stock pickern</h3>
     <p style="margin-bottom: 12px;">
-        Som muslimsk investerare i Norden (Saxo Bank, Nordnet, Avanza osv.) har du inte tillgång till automatiserade integrationslösningar. 
-        Detta tvingar dig ofta till tidskrävande, manuell screening av Shariah-skuldregler (AAOIFI-standarder) och bolagshistorik.
+        Det hela började med en djup frustration: Som muslimsk investerare i Norden (Saxo Bank, Nordnet, Avanza osv.) vill man egentligen bara ha en lugn, passiv och etisk förmögenhetsuppbyggnad. Men EU:s stränga regler (PRIIPs) blockerar nästan alla Shariah-ETF:er i handelsplattformarna på grund av saknade lokala KID-dokument.
+    </p>
+    <p style="margin-bottom: 12px;">
+        Detta tvingar in dig i en återvändsgränd: Antingen måste du kompromissa med din övertygelse för en enkel standardlösning, helt avstå från att investera, eller tvingas in i rollen som aktiv <strong>stock picker</strong> – en tidskrävande process med manuella granskningar.
     </p>
     <p style="margin-bottom: 15px;">
-        <strong>LLM Council är din självhjälpspartner.</strong> Vi erbjuder inte finansiell rådgivning eller låsta AI-beslut. Vi hjälper dig att bygga och ombalansera en robust, diversifierad portfölj fördelad på fyra pelare: <strong>Equities</strong> (Aktier), <strong>Sukuk</strong> (Islamiska certifikat), <strong>Commodities</strong> (Råvarer) och <strong>Cash/Private</strong>.
+        <strong>LLM Council skapades för att bryta denna mur.</strong> Vi tar bort friktionen: Vi prioriterar uteslutande europeiskt handlade, KID-godkända UCITS-ETF:er och enskilda aktier som du faktiskt får köpa i Norden. Dessutom hjälper vi dig att 'klona' de låsta fonderna och fördela ditt sparande passivt och avgiftsfritt.
     </p>
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsiktig guide for den bevisste investor</h3>
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En transparent guide for den motvillige stock pickeren</h3>
     <p style="margin-bottom: 12px;">
-        Som muslimsk investor i Norden (Saxo Bank, Nordnet, Avanza osv.) har du ikke tilgang til automatiserte integrasjonsløsninger. 
-        Dette tvinger deg ofte ut i tidskrevende, manuell screening av Shariah-gjeldsregler (AAOIFI-standarder) og selskapshistorier.
+        Det hele startet med en dyp frustrasjon: Som muslimsk investor i Norden (Saxo Bank, Nordnet, Avanza osv.) ønsker man egentlig bare en rolig, passiv og etisk formuebygging. Men EU's strenge regler (PRIIPs) blokkerer for nesten alle Shariah-ETF-er på handelsplattformene på grunn av manglende lokale KID-dokumenter.
+    </p>
+    <p style="margin-bottom: 12px;">
+        Dette tvinger deg ut i en blindvei: Enten må du inngå kompromiss med din overbevisning for en enkel standardløsning, la helt være å investere, eller bli tvunget inn i rollen som aktiv <strong>stock picker</strong> – en tidskrevende prosess med manuelle gjeldsanalyser.
     </p>
     <p style="margin-bottom: 15px;">
-        <strong>LLM Council er din selvhjulpne makker.</strong> Vi tilbyr ikke finansiell rådgivning eller låste AI-beslutninger. Vi hjelper deg med å bygge og rebalancere en robust, diversifisert portefølje fordelt på fire søjler: <strong>Equities</strong> (Aksjer), <strong>Sukuk</strong> (Islandske sertifikater), <strong>Commodities</strong> (Råvarer) og <strong>Cash/Private</strong>.
+        <strong>LLM Council ble skapt for å bryte denne muren.</strong> Vi fjerner friksjonen: Vi prioriterer utelukkende europeisk handlede, KID-godkjente UCITS-ETF-er og enkeltaksjer du faktisk kan handle i Norden. I tillegg hjelper vi deg med å 'klone' de låste fondene og fordele sparingen din passivt og kurtasjefritt.
     </p>
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ Läpinäkyvä opas tietoiselle sijoittajalle</h3>
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ Läpinäkyvä opas vastentahtoiselle osakepoimijalle</h3>
     <p style="margin-bottom: 12px;">
-        Muslimisijoittajana Pohjoismaissa (Saxo Bank, Nordnet, Avanza jne.) sinulla ei ole pääsyä automatisoituihin integraatioratkaisuhin. 
-        Tämä pakottaa sinut usein aikaa vievään, manuaaliseen Shariah-velkasääntöjen (AAOIFI-standardien) ja yrityshistorioiden tarkistamiseen.
+        Kaikki alkoi syvästä turhautumisesta: Muslimisijoittajana Pohjoismaissa (Saxo Bank, Nordnet, Avanza jne.) haluat vain rauhallista, passiivista ja eettistä varallisuuden kerryttämistä. EU:n tiukat säännöt (PRIIPs) kuitenkin estävät lähes kaikkien Shariah-yhteensopivien ETF-rahastojen ostamisen paikallisten KID-tietoasiakirjojen puuttumisen vuoksi.
+    </p>
+    <p style="margin-bottom: 12px;">
+        Tämä pakottaa sinut umpikujaan: Sinun on joko tingittävä vakaumuksestasi helpon standardiratkaisun vuoksi, jätettävä sijoittamatta kokonaan tai ryhdyttävä aktiiviseksi <strong>osakepoimijaksi</strong> – mikä on aikaa vievää ja vaatii manuaalista salkun suodatusta.
     </p>
     <p style="margin-bottom: 15px;">
-        <strong>LLM Council on omatoiminen kumppanisi.</strong> Emme tarjoa taloudellista neuvontaa tai lukittuja tekoälypäätöksiä. Autamme sinua rakentamaan ja tasapainottamaan vankan, hajautetun salkun, joka jakautuu neljään pilariin: <strong>Equities</strong> (Osakkeet), <strong>Sukuk</strong> (Islamilaiset salkut), <strong>Commodities</strong> (Raaka-aineet) ja <strong>Cash/Private</strong>.
+        <strong>LLM Council luotiin murtamaan tämä muuri.</strong> Poistamme esteet: Suosittelemme vain Euroopassa kaupankäynnin kohteena olevia, KID-hyväksyttyjä UCITS-ETF-rahastoja ja yksittäisiä osakkeita, joita voit aidosti ostaa Pohjoismaissa. Lisäksi autamme sinua 'kloonaamaan' lukitut rahastot ja jakamaan kuukausittaiset säästösi passiivisesti ja ilman välityspalkkiota.
     </p>
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ A Transparent Guide for the Conscious Investor</h3>
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ A Transparent Guide for the Reluctant Stock Picker</h3>
     <p style="margin-bottom: 12px;">
-        As a Muslim investor in the Nordics (Saxo Bank, Nordnet, Avanza, etc.), you lack automated integration solutions. 
-        This often forces you into time-consuming, manual screening of Shariah debt rules (AAOIFI standards) and business models.
+        It started with a deep frustration: As a Muslim investor in the Nordics (Saxo Bank, Nordnet, Avanza, etc.), you want a calm, passive, and ethical wealth-building journey. Yet, strict EU regulations (PRIIPs) block nearly all Shariah-compliant US ETFs from local broker platforms due to missing local KID documents.
+    </p>
+    <p style="margin-bottom: 12px;">
+        This forces you into a dead end: You must either compromise on your ethical convictions for a conventional solution, abstain from investing altogether, or be forced into the role of an active <strong>stock picker</strong> – a time-consuming, overwhelming process of manual balance sheet auditing.
     </p>
     <p style="margin-bottom: 15px;">
-        <strong>LLM Council is your self-reliant companion.</strong> We do not offer financial advice or locked AI decisions. We help you build and rebalance a robust, diversified portfolio across four pillars: <strong>Equities</strong>, <strong>Sukuk</strong> (Islamic Bonds), <strong>Commodities</strong>, and <strong>Cash/Private</strong>.
+        <strong>LLM Council was built to break through this wall.</strong> We remove the friction: We exclusively prioritize European-traded, KID-approved UCITS ETFs and individual stocks you can actually buy in the Nordics. Furthermore, we help you 'clone' the locked US funds and distribute your monthly savings passively and commission-free.
     </p>
 </div>
 """))
@@ -1322,13 +1499,13 @@ elif st.session_state.step == 2:
                 st.rerun()
 
 
-# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (INTELIGENTE SLIDERE UDEN OVER-SHOOT) ---
+# --- TRIN 3: INVESTERINGSPROFIL, SLIDERE & OPSPARINGS BUDGET ---
 elif st.session_state.step == 3:
     st.subheader(_t("Definer din investeringsprofil", "Definiera din investeringsprofil", "Definer din investeringsprofil", "Määritä sijoitusprofiilisi", "Define your investment profile"))
     
     col_n1, col_n2 = st.columns(2)
     with col_n1:
-        st.session_state.user_name = st.text_input(_t("Dit navn i rapporten:", "Ditt namn i rapporten:", "Ditt navn i rapporten:", "Nimesi raportissa:", "Your name in the report:"), value=st.session_state.user_name)
+        st.session_state.user_name = st.text_input(_t("Dit navn i rapporten:", "Ditt namn i rapporten:", "Ditt namn i rapporten:", "Nimesi raportissa:", "Your name in the report:"), value=st.session_state.user_name)
     with col_n2:
         st.session_state.user_email = st.text_input(_t("E-mailadresse til briefinger:", "E-postadress för briefinger:", "E-postadresse til briefinger:", "Sähköpostiosoite briefingeille:", "Email address for briefings:"), value=st.session_state.user_email)
 
@@ -1342,19 +1519,24 @@ elif st.session_state.step == 3:
         freq_index = freq_options.index(st.session_state.frequency) if st.session_state.frequency in freq_options else 1
         st.session_state.frequency = st.selectbox(_t("Hvor ofte ønsker du briefing?", "Hur ofta vill du ha briefing?", "Hvor ofte ønsker du briefing?", "Kuinka usein haluat raportin?", "How often do you want briefings?"), freq_options, index=freq_index)
 
+    # REBALANCERINGS BUDGET INDTASTNING TIL PORTEFØLJEPLEJE
+    st.write("---")
+    st.subheader("💰 " + _t("Dit løbende rebalancerings-budget", "Månatlig sparbudget", "Ditt løpende rebalanceringsbudsjett", "Kuukausittainen säästöbudjetti", "Your Planned Investment Budget"))
+    st.session_state.monthly_deposit = st.number_input(
+        _t("Planlagt månedlig opsparing (DKK):", "Månatligt sparande (DKK):", "Planlagt månedlig sparing (DKK):", "Suunniteltu kuukausisäästö (DKK):", "Planned monthly savings (DKK):"),
+        min_value=0,
+        value=int(st.session_state.monthly_deposit)
+    )
+
     st.write("---")
     st.subheader(_t("Angiv din ønskede mål-allokering", "Ange din önskade måstallokering", "Angi din ønskede målallokering", "Aseta tavoitesalkkusi hajautus", "Specify your target asset allocation"))
-    st.write(_t("Træk i sliderne nedenfor. Din samlede vægtning låses automatisk, så den ALDRIG kan skyde over 100% samlet.", "Dra i reglagen nedan. Din totala allokering låses automatiskt så att den ALDRIG kan överstiga 100% totalt.", "Dra i sliderne nedenfor. Din samlede vekting låses automatisk, slik at den ALDRIG kan overskride 100% samlet.", "Säädä liukusäätimiä alta. Tavoiteosuus lukitaan automaattisesti siten, että kokonaishajautus ei voi ylittää 100 %.", "Adjust the sliders below. Your total allocation is automatically capped, so it can NEVER exceed 100% in total."))
     
     # Loft-beregninger (zero-sum budget)
     st.session_state.slider_stocks = min(st.session_state.slider_stocks, 100)
-    
     max_sukuk = 100 - st.session_state.slider_stocks
     st.session_state.slider_sukuk = min(st.session_state.slider_sukuk, max_sukuk)
-    
     max_commodities = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk
     st.session_state.slider_commodities = min(st.session_state.slider_commodities, max_commodities)
-    
     max_cash = 100 - st.session_state.slider_stocks - st.session_state.slider_sukuk - st.session_state.slider_commodities
     st.session_state.slider_cash = min(st.session_state.slider_cash, max_cash)
 
@@ -1364,7 +1546,6 @@ elif st.session_state.step == 3:
     target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities (Råvarer) %", "Commodities (Råvarer) %", "Raaka-aineet %", "Commodities %"), 0, max_commodities, key="slider_commodities")
     target_cash = st.slider(_t("Cash/Private %", "Cash/Private %", "Cash/Private %", "Käteinen/Yksityinen %", "Cash/Private %"), 0, max_cash, key="slider_cash")
 
-    # Sum-beregning
     total_target = target_stocks + target_sukuk + target_commodities + target_cash
     
     if total_target != 100:
@@ -1377,7 +1558,7 @@ elif st.session_state.step == 3:
             f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to allocate {difference}%."
         ))
     else:
-        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Allocation is exactly 100%! You can now proceed.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
+        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Allocation is exactly 100%! Du kan nu gå videre.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
         st.session_state.targets = {
             "Aktier": float(target_stocks),
             "Sukuk": float(target_sukuk),
@@ -1404,7 +1585,7 @@ elif st.session_state.step == 3:
             st.rerun()
 
 
-# --- TRIN 4: PORTEFØLJEOPBYGNING (RETTET: INGEN FORUDVALGTE SEKTORE!) ---
+# --- TRIN 4: PORTEFØLJEOPBYGNING (NYSKABENDE ETF-KLONING INDBYGGET) ---
 elif st.session_state.step == 4:
     st.subheader(_t("Indtast dine nuværende aktiver", "Fyll i dina nuvarande tillgångar", "Oppgi dine nåværende aktiver", "Syötä nykyiset sijoituksesi", "Input your current holdings"))
     
@@ -1415,10 +1596,27 @@ elif st.session_state.step == 4:
 
     selected_new_sectors = []
     if st.session_state.is_new_investor:
-        # Expander-menu med afkrydsningsfelter, som ikke er præ-selekterede
-        with st.expander(_t("Vælg de sektorer du vil opbygge eksponering mod ▾", "Välj de sektorer du vill bygga exponering mot ▾", "Velg sektorene du vil bygge eksponering mot ▾", "Valitse sektorit, joille haluat altistua ▾", "Select the sectors you want to build exposure to ▾")):
+        
+        # 1. OPTION TIL DIREKTE KLONING AF LÅSTE AMERIKANSKE FONDER (NYSKABENDE!)
+        st.write("---")
+        st.write("🛡️ **" + _t("Genvej: Klon en låst Shariah-ETF med enkeltaktier", "Genväg: Klona en låst Shariah-ETF med enskilda aktier", "Snarvei: Klon en låst Shariah-ETF med enkeltaksjer", "Pika-asetus: Kloonaa lukittu Shariah-ETF yksittäisillä osakkeilla", "Shortcut: Clone a locked Shariah-ETF with individual stocks") + "**")
+        st.write(_t(
+            "Da amerikanske fonde (som HLAL) mangler KID og er låst på Saxo Bank, kan du her med ét klik klone fondens 5 største selskaber direkte ind i din portefølje:",
+            "Eftersom amerikanska fonder (som HLAL) saknar KID och är låsta på Saxo Bank, kan du här med ett klick klona fondens 5 största innehav direkt i din portfölj:",
+            "Siden amerikanske fond (som HLAL) mangler KID og er låst på Saxo Bank, kan du her med ett klikk klone fondets 5 største posisjoner direkte inn i din portefølje:",
+            "Koska yhdysvaltalaisilta rahastoilta (kuten HLAL) puuttuu KID-asiakirja ja ne on lukittu Saxo Bankissa, voit tästä kloonata rahaston 5 suurinta omistusta yhdellä klikkauksella suoraan salkkuusi:",
+            "Since US-domiciled ETFs (like HLAL) lack KIDs and are locked on Saxo, you can clone the ETF's top 5 holdings directly into your portfolio with a single click:"
+        ))
+        if st.button("🗳️ " + _t("Klon den globale Shariah ETF (HLAL)", "Klona Shariah-ETF:en (HLAL)", "Klon den globale Shariah ETF (HLAL)", "Kloonaa Shariah ETF (HLAL)", "Clone global Shariah ETF (HLAL)"), use_container_width=True):
+            st.session_state.investor_holdings = STATIC_ETF_CLONES["HLAL"].copy()
+            st.session_state.is_new_investor = False
+            st.success(_t("Boom! Fondens selskaber (MSFT, AAPL, NVDA, GOOGL, CRM) er nu tilføjet. Du er ikke længere tom!", "Boom! Fondens bolag har lagts till. Du är inte längre tom!", "Boom! Fondets selskaper er nå lagt til. Du er ikke lenger tom!", "Hienoa! Rahaston osakkeet on nyt lisätty salkkuusi!", "Success! The ETF's holdings have been added. Your portfolio is ready!"))
+            time.sleep(1.5)
+            st.rerun()
+
+        st.write("---")
+        with st.expander(_t("Eller vælg de sektorer du vil opbygge eksponering mod ▾", "Eller välj de sektorer du vill bygga exponering mot ▾", "Eller velg sektorene du vil bygge eksponering mot ▾", "Tai valitse sektorit, joille haluat altistua ▾", "Or select the sectors you want to build exposure to ▾")):
             for sector in TARGET_SUBSECTORS:
-                # Sat til False, så de starter helt unselected
                 if st.checkbox(sector, value=False):
                     selected_new_sectors.append(sector)
     else:
