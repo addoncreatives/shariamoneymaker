@@ -249,7 +249,7 @@ def search_tickers_by_name_multi(query: str) -> list:
 
 
 # =====================================================================
-#  EXCEL GENERATOR (OPDATERET MED RIGTIGE VÆRDIER & DETALJER)
+#  EXCEL GENERATOR
 # =====================================================================
 def generate_excel_template_bytes(holdings_list: list, watchlist_list: list, portfolio_weights: dict = None, sector_distribution: dict = None) -> bytes:
     wb = openpyxl.Workbook()
@@ -589,39 +589,64 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  ON-DEMAND SEKTOR PROSPEKTOR AGENT
+#  ON-DEMAND SEKTOR PROSPEKTOR AGENT (KORRIGERET TIL LÆNGERE TIMEOUT = 120S!)
 # =====================================================================
-def generate_sector_prospects(api_key: str, sector: str, user_name: str) -> str:
+def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_list: list = None) -> str:
     """
     Genererer 3 Shariah-compliant selskaber inden for den valgte delsektor 
-    via Gemini med direkte links til finansielle analyser.
+    via Gemini og returnerer dem som en rå, struktureret JSON-streng.
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    ignore_clause = ""
+    if ignore_list:
+        ignore_clause = f"CRITICAL: Exclude the following tickers from your analysis: {', '.join(ignore_list)}."
+
     prompt = f"""
-    You are the elite financial advisory council ("LLM Council"). Our VIP client, {user_name}, has engaged you on-demand to research and prospect the sector: '{sector}'.
+    You are the elite financial advisory council ("LLM Council"). Our VIP client, {user_name}, has engaged you to research and prospect the sector: '{sector}'.
+    {ignore_clause}
     
-    YOUR OBJECTIVE:
+    YOUR TASK:
     1. Identify 3 highly promising, Shariah-compliant (based on standard AAOIFI interest-debt criteria) global companies in the '{sector}' sector.
-    2. Write a highly engaging, storytelling-focused prospect briefing in English for each of them (focus on global megatrends, future pipeline, and why they fit the sector).
-    3. Do NOT focus on dry tables or excessive numbers. Keep "number noise" to a minimum.
-    4. For each company, provide exactly 3 beautiful, clickable HTML links styled as clear buttons:
-       - Link 1: Seeking Alpha page (https://seekingalpha.com/symbol/TICKER)
-       - Link 2: Yahoo Finance page (https://finance.yahoo.com/quote/TICKER)
-       - Link 3: Google Search for official investor relations (https://www.google.com/search?q=TICKER+investor+relations)
+    2. Format the response strictly as a raw JSON array of 3 objects. Do NOT use markdown code blocks like "```json". Just output the raw JSON.
     
-    Format the entire response as clean, modern, responsive HTML suited for Streamlit display, with a slate and warm-gold design. Use inline CSS styles for maximum formatting stability. Do NOT wrap in markdown "```html" code blocks.
+    JSON Schema:
+    [
+      {{
+        "symbol": "TICKER",
+        "name": "Company Name",
+        "thesis": "A short, highly engaging, storytelling-focused investment case (maximum 2 sentences) in English. Focus on future growth pipeline, not financial numbers.",
+        "sa_link": "https://seekingalpha.com/symbol/TICKER",
+        "yf_link": "https://finance.yahoo.com/quote/TICKER",
+        "ir_link": "https://www.google.com/search?q=TICKER+investor+relations"
+      }}
+    ]
     """
     headers = {'Content-Type': 'application/json'}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=40)
+        # FORLÆNGET TIMEOUT: Sat til 120 sekunder for at forhindre ReadTimeoutErrors!
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
         data = response.json()
         if 'candidates' in data and len(data['candidates']) > 0:
-            raw_html = data['candidates'][0]['content']['parts'][0]['text']
-            return raw_html.replace("```html", "").replace("```", "").strip()
+            return data['candidates'][0]['content']['parts'][0]['text']
     except Exception as e:
-        return f"<h3>System Error</h3><p>Could not generate prospects: {str(e)}</p>"
+        print(f"Fejl under Sektor-prospektering: {str(e)}")
+    return "[]"
+
+def extract_json_array(text: str) -> list:
+    """Metode til fejlfrit at trække og parse et JSON-array fra Gemini output."""
+    match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
+    try:
+        return json.loads(text.strip().replace("```json", "").replace("```", "").strip())
+    except Exception:
+        return []
 
 
 # =====================================================================
@@ -721,6 +746,161 @@ class DeliveryAgent:
 
 
 # =====================================================================
+#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
+# =====================================================================
+async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
+    if is_new:
+        portfolio_distribution = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+        sector_distribution = {sec: 33.3 for sec in new_sectors}
+        holdings_list = []
+        focus_category = "Aktier"
+        deficit = 25.0
+    else:
+        total_mv = 0.0
+        for item in holdings_list:
+            symbol = item["Ticker"]
+            if "PVT_" in symbol or "CASH_" in symbol:
+                total_mv += float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item["Kurs"] = price
+                    total_mv += (price * float(item["Shares"]))
+                except Exception:
+                    total_mv += 1000.0
+
+        portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+        sector_distribution = {}
+        
+        for item in holdings_list:
+            category = item["Category"]
+            subsector = item["Sector"]
+            symbol = item["Ticker"]
+            
+            if "PVT_" in symbol or "CASH_" in symbol:
+                item_mv = float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item_mv = (price * float(item["Shares"]))
+                except Exception:
+                    item_mv = 1000.0
+                    
+            weight_chunk = (item_mv / total_mv * 100.0) if total_mv > 0 else 20.0
+            
+            if category in portfolio_distribution:
+                portfolio_distribution[category] += weight_chunk
+            if subsector not in sector_distribution:
+                sector_distribution[subsector] = 0.0
+                
+            sector_distribution[subsector] += weight_chunk
+
+        pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
+        focus_category, deficit = pm.identify_underweighted_focus()
+        
+    print(f"SaaS Fokus: {focus_category} (Gab: {deficit:.2f}%)")
+    
+    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+    combined_candidates = list(set(watchlist + growth_pool))
+    
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+    approved_stocks = screener.run_screening(focus_category)
+    target_candidates = approved_stocks[:10]
+    
+    if not target_candidates:
+        return False, "Ingen selskaber bestod screening i denne kategori i dag."
+
+    detailed_candidates_data = []
+    for stock in target_candidates:
+        symbol = stock["symbol"]
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            rev_growth = info.get("revenueGrowth", "N/A")
+            op_margins = info.get("operatingMargins", "N/A")
+            free_cashflow = info.get("freeCashflow", "N/A")
+            
+            detailed_candidates_data.append({
+                "symbol": symbol,
+                "name": stock["name"],
+                "pe_ratio": stock["pe_ratio"],
+                "debt_ratio": stock["debt_ratio"],
+                "sector": stock["sector"],
+                "industry": stock["industry"],
+                "is_etf": stock.get("is_etf", False),
+                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
+                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                "currency": info.get("currency", "N/A")
+            })
+        except Exception:
+            detailed_candidates_data.append(stock)
+
+    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
+    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
+    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
+    
+    council_agent = CouncilAgent(GEMINI_API_KEY)
+    report_html = council_agent.run_proactive_analysis(
+        candidates_data=detailed_candidates_data,
+        category=focus_category,
+        deficit=deficit,
+        current_portfolio_str=current_weights_str,
+        current_holdings_str=current_holdings_str,
+        sector_distribution_str=sector_distribution_str,
+        user_name=user_name,
+        horizon=horizon
+    )
+
+    excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist, portfolio_distribution, sector_distribution)
+
+    output_mp3 = "llm_council_podcast.mp3"
+    podcast_compiled = False
+    
+    # Opret en ren tekstbeskrivelse til podcast-værterne i stedet for tung e-mail HTML
+    clean_data_text = (
+        f"VIP Client: {user_name}\n"
+        f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
+        f"Dynamic sectors:\n{sector_distribution_str}\n\n"
+        f"Current holdings:\n{current_holdings_str}\n\n"
+        f"Target focus category tonight: {focus_category} (deficit: {deficit:.2f}%)\n\n"
+        f"Screened compliant stocks:\n"
+    )
+    for s in detailed_candidates_data:
+        clean_data_text += f"- {s.get('name')} ({s.get('symbol')}): Sector: {s.get('sector')}, Industry: {s.get('industry')}. Price: {s.get('current_price')} {s.get('currency')}. Revenue Growth: {s.get('revenue_growth')}, Operating Margin: {s.get('operating_margins')}, FCF: {s.get('free_cash_flow')}. Debt Ratio: {s.get('debt_ratio')}.\n"
+
+    podcast_agent = PodcastAgent(GEMINI_API_KEY)
+    generated_file = podcast_agent.generate_podcast_audio(clean_data_text, user_name)
+    
+    # Læser og gemmer resultaterne live i Session State for direkte download/afspilning på hjemmesiden (Fejlsikring!)
+    st.session_state.generated_report = report_html
+    if generated_file and os.path.exists(generated_file):
+        with open(generated_file, "rb") as f:
+            st.session_state.generated_audio_bytes = f.read()
+        import shutil
+        shutil.copyfile(generated_file, output_mp3)
+        podcast_compiled = True
+
+    attachments_list = []
+    if podcast_compiled:
+        attachments_list.append({"path": output_mp3, "name": f"{user_name}_LLM_Council_Podcast.mp3"})
+    attachments_list.append({"data": excel_raw_bytes, "name": f"{user_name}_Live_Portfolio_Template.xlsx"})
+
+    os.environ["EMAIL_RECEIVER"] = receiver_email
+    subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+    
+    DeliveryAgent.send_email(
+        subject=subject,
+        html_content=report_html,
+        attachments=attachments_list
+    )
+    return True, "Briefing, lyd-podcast og dit Excel-ark er nu klar på skærmen samt sendt til din e-mailadresse."
+
+
+# =====================================================================
 #  DATABASE INTEGRATION (GOOGLE WEB APP)
 # =====================================================================
 def load_user_portfolio_from_db(email: str, password: str) -> dict:
@@ -773,6 +953,8 @@ if "is_logged_in" not in st.session_state:
     st.session_state.is_logged_in = False
 if "is_new_investor" not in st.session_state:
     st.session_state.is_new_investor = False
+if "watchlist_list" not in st.session_state:
+    st.session_state.watchlist_list = ["TRMB", "SAP", "SPSK", "AEM", "NEM"]
 
 # Slidervariabler
 if "slider_stocks" not in st.session_state:
@@ -791,10 +973,12 @@ if "generated_audio_bytes" not in st.session_state:
     st.session_state.generated_audio_bytes = None
 
 # Sektor research
-if "last_sector_research" not in st.session_state:
-    st.session_state.last_sector_research = None
+if "last_sector_prospects_list" not in st.session_state:
+    st.session_state.last_sector_prospects_list = []
 if "last_research_sector_name" not in st.session_state:
     st.session_state.last_research_sector_name = None
+if "prospect_ignore_list" not in st.session_state:
+    st.session_state.prospect_ignore_list = []
 
 
 # =====================================================================
@@ -860,33 +1044,87 @@ if st.session_state.step == 1:
                 st.session_state.step = 5
                 st.rerun()
 
-        # DYNAMISK ON-DEMAND SEKTOR RESEARCH (INTERAKTIVT DIVE-IN)
+        # DYNAMISK ON-DEMAND SEKTOR RESEARCH (INTERAKTIVT DIVE-IN MED WATCHLIST TILFØJELSE)
         st.write("---")
         st.subheader("🔍 " + _t("On-Demand Sektor Research", "On-Demand Sektor-Research", "On-Demand Sektor-Research", "Sektorin tarkastelu pyynnöstä", "On-Demand Sector Research"))
         st.write(_t(
-            "Vælg en delsektor nedenfor for at lade dit LLM Council foretage en dybdegående prospektering af 3 stærke, compliant vækstcases med direkte analyse-links.",
-            "Välj en delsektor nedan för att låta ditt LLM Council göra en djupgående prospektering av 3 starka, compliant tillväxtcase med direktlänkar.",
-            "Velg en delsektor nedenfor for å la ditt LLM Council foreta en dypgående prospektering av 3 sterke, compliant vekstcases med direkte lenker.",
-            "Valitse alta osa-sektori, jotta LLM Council voi tehdä syvällisen arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta suorilla linkeillä.",
-            "Select a sub-sector below to have your LLM Council perform an on-demand, deep-dive prospecting of 3 strong, compliant growth cases with direct research links."
+            "Vælg en delsektor nedenfor for at lade dit LLM Council foretage en øjeblikkelig prospektering af 3 stærke, compliant vækstcases. Du kan tilføje dem direkte til din Watchlist herunder.",
+            "Välj en delsektor nedan för att låta ditt LLM Council göra en omedelbar prospektering av 3 starka, compliant tillväxtcase. Du kan lägga till dem direkt i din Watchlist nedan.",
+            "Velg en delsektor nedenfor for å la ditt LLM Council foreta en dypgående prospektering av 3 sterke, compliant vekstcases. Du kan legge dem til i din Watchlist direkte nedenfor.",
+            "Valitse alta osa-sektori, jotta LLM Council voi tehdä välittömän arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta. Voit lisätä ne suoraan tarkkailulistallesi alta.",
+            "Select a sub-sector below to have your LLM Council perform an on-demand prospecting of 3 strong, compliant growth cases. You can add them directly to your Watchlist below."
         ))
         
-        selected_research_sector = st.selectbox(
-            _t("Vælg delsektor:", "Välj delsektor:", "Velg delsektor:", "Valitse osa-sektori:", "Select sub-sector to prospect:"),
-            TARGET_SUBSECTORS
-        )
-        
-        if st.button("🚀 " + _t("Engager LLM Council", "Engagera LLM Council", "Engasjer LLM Council", "Käynnistä LLM Council", "Engage LLM Council"), use_container_width=True):
-            with st.spinner(_t("Rådet analyserer sektoren og danner selskabs-prospekter...", "Rådet analyserar sektorn och genererar prospekt...", "Rådet analyserer sektoren og genererer prospekter...", "Neuvosto analysoi sektoria ja luo kohteita...", "The Council is analyzing the sector and compiling investment cases...")):
-                prospects_html = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name)
-                st.session_state.last_sector_research = prospects_html
-                st.session_state.last_research_sector_name = selected_research_sector
-                st.rerun()
-
-        if st.session_state.last_sector_research:
+        col_sec_sel, col_sec_reload = st.columns([2, 1])
+        with col_sec_sel:
+            selected_research_sector = st.selectbox(
+                _t("Vælg delsektor:", "Välj delsektor:", "Velg delsektor:", "Valitse osa-sektori:", "Select sub-sector to prospect:"),
+                TARGET_SUBSECTORS
+            )
+        with col_sec_reload:
             st.write(" ")
-            st.subheader("📋 " + _t(f"Anbefalede prospects inden for {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet sektorilla {st.session_state.last_research_sector_name}", f"Recommended Prospects in {st.session_state.last_research_sector_name}"))
-            components.html(st.session_state.last_sector_research, height=550, scrolling=True)
+            st.write(" ")
+            # Knap til at hente alternative selskaber inden for samme sektor (Ignore-liste aktiveres)
+            if st.button("🔄 " + _t("Udforsk alternativer", "Utforska alternativ", "Utforsk alternativer", "Etsi vaihtoehtoja", "Explore Alternatives"), use_container_width=True):
+                if st.session_state.last_sector_prospects_list:
+                    for p in st.session_state.last_sector_prospects_list:
+                        st.session_state.prospect_ignore_list.append(p.get("symbol", "").upper())
+                with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Søker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
+                    prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list)
+                    prospects_parsed = extract_json_array(prospect_json)
+                    if prospects_parsed:
+                        st.session_state.last_sector_prospects_list = prospects_parsed
+                        st.session_state.last_research_sector_name = selected_research_sector
+                        st.success(_t("Nye prospects klar!", "Nya prospekt redo!", "Nye prospekter klare!", "Uusia kohteita valmiina!", "New prospects ready!"))
+                        time.sleep(1)
+                        st.rerun()
+
+        if st.button("🚀 " + _t("Engager LLM Council", "Engagera LLM Council", "Engasjer LLM Council", "Käynnistä LLM Council", "Engage LLM Council"), use_container_width=True):
+            # Nulstiller ignore-listen når der vælges en ny sektor manuelt
+            st.session_state.prospect_ignore_list = []
+            with st.spinner(_t("Rådet analyserer sektoren og danner selskabs-prospekter...", "Rådet analyserar sektorn och genererar prospekt...", "Rådet analyserer sektoren og genererer prospekter...", "Neuvosto analysoi sektoria ja luo kohteita...", "The Council is analyzing the sector and compiling investment cases...")):
+                prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, [])
+                prospects_parsed = extract_json_array(prospect_json)
+                if prospects_parsed:
+                    st.session_state.last_sector_prospects_list = prospects_parsed
+                    st.session_state.last_research_sector_name = selected_research_sector
+                    st.rerun()
+
+        # Visning af de fundne prospekter med interaktiv tilføjelse til watchlist
+        if st.session_state.last_sector_prospects_list:
+            st.write(" ")
+            st.subheader("📋 " + _t(f"Anbefalede prospects i {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet sektorilla {st.session_state.last_research_sector_name}", f"Recommended prospects in {st.session_state.last_research_sector_name}"))
+            
+            for idx, p in enumerate(st.session_state.last_sector_prospects_list):
+                symbol = p.get("symbol", "Other").upper()
+                name = p.get("name", "Other")
+                thesis = p.get("thesis", "")
+                
+                with st.container(border=True):
+                    col_info, col_btn = st.columns([3, 1])
+                    with col_info:
+                        st.markdown(f"### {name} ({symbol})")
+                        st.write(thesis)
+                        
+                        col_link1, col_link2, col_link3 = st.columns(3)
+                        with col_link1:
+                            st.markdown(f"[ Seeking Alpha]({p.get('sa_link')})")
+                        with col_link2:
+                            st.markdown(f"[ Yahoo Finance]({p.get('yf_link')})")
+                        with col_link3:
+                            st.markdown(f"[ Investor Relations]({p.get('ir_link')})")
+                    
+                    with col_btn:
+                        st.write(" ")
+                        st.write(" ")
+                        if symbol in st.session_state.watchlist_list:
+                            st.success(_t("Tilføjet! ", "Tillagd! ", "Lagt til! ", "Lisätty! ", "Added! "))
+                        else:
+                            if st.button(_t("➕ Watchlist", "➕ Watchlist", "➕ Watchlist", "➕ Tarkkailulista", "➕ Watchlist"), key=f"add_watchlist_{symbol}_{idx}", use_container_width=True):
+                                st.session_state.watchlist_list.append(symbol)
+                                st.success(_t(f"{symbol} tilføjet!", f"{symbol} tillagd!", f"{symbol} lagt til!", f"{symbol} lisätty!", f"{symbol} added!"))
+                                time.sleep(1)
+                                st.rerun()
 
         # Failsafe: Vis seneste ugentlige briefinger direkte på skærmen
         if st.session_state.generated_report:
@@ -1261,7 +1499,7 @@ elif st.session_state.step == 4:
                                         "Sector": sub_sec,
                                         "Kurs": 0.0
                                     })
-                                st.success(_t(f"Tilføjede {shares_to_add} stk. {comp_name}.", f"La till {shares_to_add} st. {comp_name}.", f"La til {shares_to_add} stk. {comp_name}.", f"Lisätty {shares_to_add} kpl {comp_name}.", f"Added {shares_to_add} shares of {comp_name}."))
+                                st.success(_t(f"Tilføjede {shares_to_add} stk. {comp_name}.", f"La till {shares_to_add} st. {comp_name}.", f"La till {shares_to_add} stk. {comp_name}.", f"Lisätty {shares_to_add} kpl {comp_name}.", f"Added {shares_to_add} shares of {comp_name}."))
                                 time.sleep(1)
                                 st.rerun()
                     except Exception as e:
@@ -1326,8 +1564,13 @@ elif st.session_state.step == 4:
 elif st.session_state.step == 5:
     st.subheader(_t("Udsendelse & Aktiver dit LLM Council", "Sändning & Aktivera ditt LLM Council", "Utsendelse & Aktiver ditt LLM Council", "Lähetys & Aktivoi LLM Council", "Delivery & Activate your LLM Council"))
     
-    watchlist_input = st.text_input(_t("Monitorer selskaber i Watchlist (kommasepareret):", "Övervaka bolag i bevakningslistan (kommaseparerat):", "Monitorer selskaper i Watchlist (kommaseparert):", "Seuraa yrityksiä tarkkailulistalla (pilkuilla erotettuna):", "Monitor tickers in your Watchlist (comma-separated):"), "TRMB, SAP, SPSK, AEM, NEM")
-    watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
+    # Trin 5 Watchlist input - Synkroniseret direkte med din Session State!
+    watchlist_str = ", ".join(st.session_state.watchlist_list)
+    watchlist_input = st.text_input(
+        _t("Monitorer selskaber i Watchlist (kommasepareret):", "Övervaka bolag i bevakningslistan (kommaseparerat):", "Monitorer selskaper i Watchlist (kommaseparert):", "Seuraa yrityksiä tarkkailulistalla (pilkuilla erotettuna):", "Monitor tickers in your Watchlist (comma-separated):"),
+        value=watchlist_str
+    )
+    st.session_state.watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
 
     st.write("---")
     
@@ -1358,7 +1601,7 @@ elif st.session_state.step == 5:
                 success, msg = asyncio.run(process_instant_briefing(
                     st.session_state.user_email,
                     st.session_state.investor_holdings,
-                    watchlist_list,
+                    st.session_state.watchlist_list,
                     st.session_state.targets,
                     st.session_state.user_name,
                     st.session_state.horizon,
@@ -1410,7 +1653,7 @@ elif st.session_state.step == 5:
         if st.session_state.investor_holdings and validation_passed:
             excel_bytes = generate_excel_template_bytes(
                 st.session_state.investor_holdings, 
-                watchlist_list,
+                st.session_state.watchlist_list,
                 st.session_state.targets,
                 {}
             )
