@@ -43,55 +43,6 @@ import streamlit as st
 # Sæt sidens titel og layout for et moderne look
 st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳️", layout="centered")
 
-# Custom CSS til at skabe et moderne, minimalistisk fintech-udseende (Slate & Gold)
-st.markdown("""
-    <style>
-    /* Styling af hovedoverskrifter og sektioner */
-    h1, h2, h3 {
-        color: #0F172A !important;
-        font-family: 'Helvetica Neue', Arial, sans-serif;
-    }
-    /* Statuslinje (Stepper UI) */
-    .stepper-container {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 30px;
-        background-color: #F8FAFC;
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-    }
-    .step-box {
-        text-align: center;
-        flex: 1;
-        font-size: 13px;
-        font-weight: bold;
-        color: #94A3B8;
-    }
-    .step-active {
-        color: #C5A880 !important;
-        border-bottom: 2px solid #C5A880;
-    }
-    /* Moderne infobokse */
-    .fintech-card {
-        border: 1px solid #E2E8F0;
-        padding: 25px;
-        border-radius: 8px;
-        background-color: #FFFFFF;
-        margin-bottom: 25px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    .found-box {
-        background-color: #F8FAFC;
-        border: 1px solid #C5A880;
-        padding: 15px;
-        border-radius: 6px;
-        margin-top: 15px;
-        margin-bottom: 15px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # =====================================================================
 #  CONFIGURATION & STANDARD TARGET WEIGHTS
 # =====================================================================
@@ -754,12 +705,22 @@ if "is_logged_in" not in st.session_state:
 st.title("🗳️ LLM Council")
 st.caption("PREMIUM ASSET ALLOCATION & PORTFOLIO COMPANION")
 
-# Rendering af Stepper UI (Visuel Fremdrift)
+# Rendering af Stepper UI (Uden indrykning for at undgå Markdown-blokke)
 step_names = ["1. Velkomst", "2. Login/Profil", "3. Investeringsprofil", "4. Portefølje", "5. Aktivering"]
-stepper_html = "<div class='stepper-container'>"
+stepper_html = """
+<div style="display: flex; flex-direction: row; justify-content: space-between; gap: 8px; background-color: #F8FAFC; padding: 12px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 25px; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+"""
 for i, name in enumerate(step_names, start=1):
-    active_class = "step-active" if st.session_state.step == i else ""
-    stepper_html += f"<div class='step-box {active_class}'>{name}</div>"
+    is_active = st.session_state.step == i
+    color = "#C5A880" if is_active else "#94A3B8"
+    border_bottom = "2px solid #C5A880" if is_active else "none"
+    font_weight = "bold" if is_active else "normal"
+    
+    stepper_html += f"""
+    <div style="flex: 1; text-align: center; font-size: 12px; font-family: sans-serif; font-weight: {font_weight}; color: {color} !important; border-bottom: {border_bottom}; padding-bottom: 4px; min-width: 80px; white-space: nowrap;">
+        {name}
+    </div>
+"""
 stepper_html += "</div>"
 st.markdown(stepper_html, unsafe_allow_html=True)
 
@@ -767,31 +728,31 @@ st.markdown(stepper_html, unsafe_allow_html=True)
 # --- TRIN 1: VELKOMST & KONTEKST ---
 if st.session_state.step == 1:
     st.markdown("""
-        <div class="fintech-card">
-            <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
-            <p>
-                Som muslimsk investor i Norden (hvis du f.eks. benytter handelsplatforme som <strong>Nordnet, Saxo Bank eller Avanza</strong>) 
-                møder du hurtigt en stor barriere: De populære automatiske Shariah-screening-apps (f.eks. Zoya eller Sajida) 
-                tilbyder ikke direkte integrationsmuligheder med nordiske børser og banker.
-            </p>
-            <p>
-                Det efterlader dig med et svært valg: Enten skal du gå på kompromis med dine overbevisninger ved ikke at screene grundigt, 
-                eller også skal du bruge utallige timer på selv at undersøge regnskaber, gældsforhold og Shariah-standarder helt fra bunden.
-            </p>
-            <p>
-                <strong>LLM Council er din selvhjulpne og gennemsigtige makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste, uigennemskuelige AI-beslutninger. Vi giver dig i stedet et praktisk og metodisk værktøj til at opbygge og rebalancere en robust, langsigtet portefølje baseret på anerkendte finansielle spilleregler.
-            </p>
-            
-            <h3 style="font-family: 'Georgia', serif; margin-top: 25px;">📊 De 4 Søjler i en Robust Porteføljestruktur</h3>
-            <p>At sammensætte en solid og diversificeret formue som bevidst investor handler om at fordele dine aktiver på fire primære motorer, der beskytter og vækster dine midler uafhængigt af hinanden:</p>
-            <ul>
-                <li><strong>Equities (Aktier):</strong> Ejerskab i globale virksomheder, der screenes i overensstemmelse med de anerkendte <strong>AAOIFI</strong>-retningslinjer (herunder at selskabets forrentede gæld skal udgøre mindre end 30% af dets markedsværdi) [1.1.2, 1.2.3, 1.2.5].</li>
-                <li><strong>Sukuk (Islamiske Certifikater):</strong> Erstatningen for traditionelle, rentebærende obligationer (Riba). Sukuk genererer afkast via lejeindtægter eller overskudsdeling fra reelle, fysiske aktiver og skaber en stabil indkomststrøm.</li>
-                <li><strong>Commodities (Råvarer):</strong> Fysiske råstoffer som guld, sølv eller industrielle metaller, der fungerer som din primære beskyttelse mod inflation og valutaforringelse.</li>
-                <li><strong>Cash/Private (Kontanter & Private selskaber):</strong> Likvide midler eller direkte private investeringer, der sikrer taktisk fleksibilitet og handlefrihed, når markedet korrigerer.</li>
-            </ul>
-        </div>
-    """, unsafe_allow_html=True)
+<div style="border: 1px solid #E2E8F0; padding: 25px; border-radius: 8px; background-color: #FFFFFF; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1E293B !important;">
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
+    <p style="color: #334155 !important; margin-bottom: 20px;">
+        Som muslimsk investor i Norden (hvis du f.eks. benytter handelsplatforme som <strong>Nordnet, Saxo Bank eller Avanza</strong>) 
+        møder du hurtigt en stor barriere: De populære automatiske Shariah-screening-apps (f.eks. Zoya eller Sajida) 
+        tilbyder ikke direkte integrationsmuligheder med nordiske børser og banker.
+    </p>
+    <p style="color: #334155 !important; margin-bottom: 20px;">
+        Det efterlader dig med et svært valg: Enten skal du gå på kompromis med dine overbevisninger ved ikke at screene grundigt, 
+        eller også skal du bruge utallige timer på selv at undersøge regnskaber, gældsforhold og Shariah-standarder helt fra bunden.
+    </p>
+    <p style="color: #334155 !important; margin-bottom: 20px;">
+        <strong>LLM Council er din selvhjulpne og gennemsigtige makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste, uigennemskuelige AI-beslutninger. Vi giver dig i stedet et praktisk og metodisk værktøj til at opbygge og rebalancere en robust, langsigtet portefølje baseret på anerkendte finansielle spilleregler.
+    </p>
+    
+    <h3 style="font-family: 'Georgia', serif; margin-top: 25px; color: #0F172A !important;">📊 De 4 Søjler i en Robust Porteføljestruktur</h3>
+    <p style="color: #334155 !important; margin-bottom: 10px;">At sammensætte en solid og diversificeret formue som bevidst investor handler om at fordele dine aktiver på fire primære motorer, der beskytter og vækster dine midler uafhængigt af hinanden:</p>
+    <ul style="color: #334155 !important; margin-bottom: 20px;">
+        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Equities (Aktier):</strong> Ejerskab i globale virksomheder, der screenes i overensstemmelse med de anerkendte <strong>AAOIFI</strong>-retningslinjer (herunder at selskabets forrentede gæld skal udgøre mindre end 30% af dets markedsværdi).</li>
+        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Sukuk (Islamiske Certifikater):</strong> Erstatningen for traditionelle, rentebærende obligationer (Riba). Sukuk genererer afkast via lejeindtægter eller overskudsdeling fra reelle, fysiske aktiver og skaber en stabil indkomststrøm.</li>
+        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Commodities (Råvarer):</strong> Fysiske råstoffer som guld, sølv eller industrielle metaller, der fungerer som din primære beskyttelse mod inflation og valutaforringelse.</li>
+        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Cash/Private (Kontanter & Private selskaber):</strong> Likvide midler eller direkte private investeringer, der sikrer taktisk fleksibilitet og handlefrihed, når markedet korrigerer.</li>
+    </ul>
+</div>
+""", unsafe_allow_html=True)
     
     if st.button("Kom i gang ➔"):
         st.session_state.step = 2
@@ -995,11 +956,12 @@ elif st.session_state.step == 4:
                         display_cat = DB_TO_UI_MAP.get(cat, cat)
                         
                         st.markdown(f"""
-                        <div class="found-box">
-                            <strong>Fundet match:</strong> {comp_name} ({resolved_ticker})<br>
-                            <strong>Aktivklasse:</strong> {display_cat} | <strong>Sektor:</strong> {sub_sec}
-                        </div>
-                        """, unsafe_allow_html=True)
+<div style="background-color: #F8FAFC; border: 1px solid #C5A880; padding: 15px; border-radius: 6px; margin-top: 15px; margin-bottom: 15px; color: #1E293B !important;">
+    <span style="color: #0F172A !important; font-weight: bold; font-size: 16px;">🔍 Bekræftet match:</span> {comp_name} ({resolved_ticker})<br>
+    <span style="color: #334155 !important; font-weight: bold;">Aktivklasse:</span> {display_cat} | 
+    <span style="color: #334155 !important; font-weight: bold;">Sektor:</span> {sub_sec}
+</div>
+""", unsafe_allow_html=True)
                         
                         col_shares, col_add = st.columns([1, 1])
                         with col_shares:
@@ -1274,19 +1236,19 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
 
 
 # =====================================================================
-#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN
+#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN (RETTET MOD INDRYKNING)
 # =====================================================================
 st.markdown("""
-    <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px;">
-        <h4 style="color: #991B1B; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Juridisk ansvarsfraskrivelse</h4>
-        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
-            LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. Vi tilbyder <strong>ikke</strong> autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.
-        </p>
-        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
-            Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. Du bør <strong>altid</strong> basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.
-        </p>
-        <p style="color: #7F1D1D; font-size: 14px; margin-bottom: 0; line-height: 1.5;">
-            For en uafhængig og manuel revision af gældsforhold, regnskabstal og Shariah-compliance for individuelle værdipapirer anbefaler vi at anvende det anerkendte værktøj <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
-        </p>
-    </div>
+<div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px; color: #7F1D1D !important;">
+    <h4 style="color: #991B1B !important; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Juridisk ansvarsfraskrivelse</h4>
+    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+        LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. Vi tilbyder <strong>ikke</strong> autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.
+    </p>
+    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+        Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. Du bør <strong>altid</strong> basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.
+    </p>
+    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 0; line-height: 1.5;">
+        For en uafhængig og manuel revision af gældsforhold, regnskabstal og Shariah-compliance for individuelle værdipapirer anbefaler vi at anvende det anerkendte værktøj <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
+    </p>
+</div>
 """, unsafe_allow_html=True)
