@@ -218,9 +218,9 @@ def search_ticker_by_name(query: str) -> str:
 
 
 # =====================================================================
-#  OPDATERET EXCEL SKABELONS GENERATOR (MED NATIVE LIVE FORMELER)
+#  OPDATERET EXCEL SKABELONS GENERATOR (MED REELLE TAL & OPSUMMERING)
 # =====================================================================
-def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> bytes:
+def generate_excel_template_bytes(holdings_list: list, watchlist_list: list, portfolio_weights: dict = None, sector_distribution: dict = None) -> bytes:
     wb = openpyxl.Workbook()
     
     # 1. FANEN: Beholdninger
@@ -235,11 +235,12 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
     ws1.append(headers1)
     
     for idx, item in enumerate(holdings_list, start=2):
-        name = item.get("name", "Other") if isinstance(item, dict) else item.get("Company Name", "Other")
-        symbol = item.get("ticker", "Other") if isinstance(item, dict) else item.get("Ticker", "Other")
-        shares = int(item.get("Shares", 1)) if "Shares" in item else 1
-        cat = item.get("asset_class", "Aktier") if isinstance(item, dict) else item.get("Category", "Aktier")
-        sec = item.get("sector", "Other") if isinstance(item, dict) else item.get("Sector", "Other")
+        name = item.get("name", "Other")
+        symbol = item.get("ticker", "Other")
+        shares = item.get("Shares", 1)
+        kurs = item.get("Kurs", 0.0)
+        cat = item.get("asset_class", "Aktier")
+        sec = item.get("sector", "Other")
         
         # Hvis det er et manuelt aktiv
         if "PVT_" in symbol or "CASH_" in symbol:
@@ -255,7 +256,13 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
             ws1.cell(row=idx, column=2, value=symbol)
             ws1.cell(row=idx, column=3, value="Ejer")
             ws1.cell(row=idx, column=4, value=shares)
-            ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
+            
+            # Skriv den rigtige live-kurs ind hvis vi har den, ellers brug formel
+            if kurs > 0.0:
+                ws1.cell(row=idx, column=5, value=kurs)
+            else:
+                ws1.cell(row=idx, column=5, value=f'=GOOGLEFINANCE(B{idx})')
+                
             ws1.cell(row=idx, column=6, value=f'=D{idx}*E{idx}')
             
         ws1.cell(row=idx, column=7, value=cat)
@@ -266,13 +273,41 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
         ws1.cell(row=idx, column=12, value="")
         ws1.cell(row=idx, column=13, value="")
 
-    # 2. FANEN: Opsummering
+    # 2. FANEN: Opsummering (Udfyldes nu automatisk med rigtige tal)
     ws2 = wb.create_sheet(title="Opsummering")
-    headers2 = ["4x25-overblik", "", "", "", "", "Økonomiske drivere", "", "", "", "Sektorere", "", "", "", "Huller / Watchlist"]
-    ws2.append(headers2)
     
-    # Skriv watchlist i Kolonne N (14)
-    for idx, ticker in enumerate(watchlist_list, start=2):
+    # Hovedoverskrifter
+    ws2.cell(row=1, column=1, value="4x25-overblik")
+    ws2.cell(row=1, column=6, value="Økonomiske drivere")
+    ws2.cell(row=1, column=10, value="Sektorer")
+    ws2.cell(row=1, column=14, value="Huller / Watchlist")
+    
+    # Sub-headers
+    ws2.cell(row=2, column=1, value="Kategori")
+    ws2.cell(row=2, column=2, value="Aktuel Vægt (%)")
+    ws2.cell(row=2, column=3, value="Mål Vægt (%)")
+    
+    ws2.cell(row=2, column=10, value="Delsektor")
+    ws2.cell(row=2, column=11, value="Vægt (%)")
+    
+    ws2.cell(row=2, column=14, value="Ticker")
+
+    # Udfyld 4x25 overblik automatisk
+    if portfolio_weights:
+        categories = ["Aktier", "Sukuk", "Råvarer", "Kontanter/Private"]
+        for idx, cat in enumerate(categories, start=3):
+            ws2.cell(row=idx, column=1, value=cat)
+            ws2.cell(row=idx, column=2, value=portfolio_weights.get(cat, 0.0))
+            ws2.cell(row=idx, column=3, value=25.0)
+
+    # Udfyld delsektorer automatisk
+    if sector_distribution:
+        for idx, (sec, weight) in enumerate(sector_distribution.items(), start=3):
+            ws2.cell(row=idx, column=10, value=sec)
+            ws2.cell(row=idx, column=11, value=weight)
+
+    # Udfyld Watchlist
+    for idx, ticker in enumerate(watchlist_list, start=3):
         ws2.cell(row=idx, column=14, value=ticker)
         
     excel_data = io.BytesIO()
@@ -282,7 +317,7 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list) -> 
 
 
 # =====================================================================
-#  GOOGLE SHEETS / EXCEL AGENT
+#  GOOGLE SHEETS / EXCEL AGENT (OPDATERET TIL AT HENTE ANTAL & KURS)
 # =====================================================================
 class GoogleSheetsAgent:
     def __init__(self, sheet_id: str):
@@ -319,10 +354,6 @@ class GoogleSheetsAgent:
         return None
 
     def get_current_weights_and_sectors(self) -> tuple:
-        """
-        Læser fanen 'Beholdninger', identificerer vægtene og fordeler dem 
-        både på hovedkasserne og på de specifikke delsektorer helt automatisk.
-        """
         try:
             raw_df = self._read_tab_as_df("Beholdninger")
             df = self._clean_and_align_df(raw_df, "ticker")
@@ -432,17 +463,46 @@ class GoogleSheetsAgent:
             mv_col = self._find_column_by_keyword(df, "markedsværdi")
             sektor_col = self._find_column_by_keyword(df, "sektor")
             aktivklasse_col = self._find_column_by_keyword(df, "aktivklasse")
+            antal_col = self._find_column_by_keyword(df, "antal") or self._find_column_by_keyword(df, "shares")
+            kurs_col = self._find_column_by_keyword(df, "kurs") or self._find_column_by_keyword(df, "price")
             
             holdings = []
             for _, row in df.iterrows():
                 ticker = str(row.get(ticker_col, "")).strip().upper()
                 if ticker and not pd.isna(row.get(ticker_col)) and ticker not in ["TICKER", "STATUS", "POSITION", "HULLER"]:
+                    
+                    # Behandl Antal (Shares) med robust parsing til f.eks. "1.500" eller "150,5"
+                    antal_val = row.get(antal_col, 1) if antal_col else 1
+                    try:
+                        antal_clean = str(antal_val).replace(' ', '').replace('\xa0', '').strip()
+                        if ',' in antal_clean and '.' not in antal_clean:
+                            antal_clean = antal_clean.replace(',', '.')
+                        elif ',' in antal_clean and '.' in antal_clean:
+                            antal_clean = antal_clean.replace(',', '')
+                        antal_val = float(antal_clean)
+                    except Exception:
+                        antal_val = 1.0
+
+                    # Behandl Kurs (Price)
+                    kurs_val = row.get(kurs_col, 0.0) if kurs_col else 0.0
+                    try:
+                        kurs_clean = str(kurs_val).replace(' ', '').replace('kr', '').replace('$', '').replace('\xa0', '').strip()
+                        if ',' in kurs_clean and '.' not in kurs_clean:
+                            kurs_clean = kurs_clean.replace(',', '.')
+                        elif ',' in kurs_clean and '.' in kurs_clean:
+                            kurs_clean = kurs_clean.replace(',', '')
+                        kurs_val = float(kurs_clean)
+                    except Exception:
+                        kurs_val = 0.0
+
                     holdings.append({
                         "ticker": ticker,
                         "name": str(row.get(position_col, ticker)).strip(),
                         "market_value": str(row.get(mv_col, "0.00 DKK")).strip(),
                         "sector": str(row.get(sektor_col, "N/A")).strip(),
-                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip()
+                        "asset_class": str(row.get(aktivklasse_col, "N/A")).strip(),
+                        "Shares": antal_val,
+                        "Kurs": kurs_val
                     })
             return holdings
         except Exception as e:
@@ -812,30 +872,37 @@ class PodcastAgent:
     def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
-        # Prompten fordeler nu alle 5 oprindelige rådgiver-tankegange på de 2 stemmer
         user_instructions_content = (
             f"You are a star producer creating a professional financial podcast series in English called 'The Investor's Journey'.\n\n"
+            f"IMPORTANT FORMATTING RULE:\n"
+            f"You MUST write the dialogue using strictly the XML-style tags <Person1> and <Person2>.\n"
+            f"Every line spoken by Sara must start with <Person1> and end with </Person1>.\n"
+            f"Every line spoken by Marcus must start with <Person2> and end with </Person2>.\n"
+            f"Example:\n"
+            f"<Person1>Hello, welcome to our podcast...</Person1>\n"
+            f"<Person2>Hi Sara, glad to be here...</Person2>\n"
+            f"Do not use any other speaker tags (such as 'Sara:', 'Marcus:', or 'David:') and do not write markdown headers for the speakers.\n\n"
             f"THE 5-ADVISOR SYNERGY STRUCTURE (Representing all 5 mindsets across 2 voices):\n"
             f"To deliver maximum perspective without cluttering the audio, the 5 advisory mindsets are mapped elegantly:\n"
             f"1. Sara (Host / Person 1) embodies the 'Outsider' mindset. She connects global macro trends, geopolitics, and indirect exposures (like commodity royalty models) to the portfolio.\n"
             f"2. Marcus (Chairman / Person 2) embodies the 'Executor' mindset. He focuses entirely on practical trading on Saxo Bank, liquidity, tradeability, and executing order strategies like Dollar-Cost Averaging.\n"
-            f"3. David (Contrarian) is cited by Sara as the 'Chief Strategist at a global short-fund'. He is the pure stock-specific skeptic warning of valuations and bubbles.\n"
-            f"4. Michael (Expansionist) is cited by Sara as the 'CIO of a Silicon Valley growth fund'. He focuses on pure growth momentum, pipeline potential, and upside.\n"
-            f"5. Elena (First-Principles) is cited by Sara as the 'Head of Macro Research at a Swiss investment bank'. She is the strict mathematical guardian of Shariah compliance, debt limits, and asset class balancing.\n\n"
+            f"3. David (Contrarian) is cited by Sara (<Person1>) as the 'Chief Strategist at a global short-fund'. He is the pure stock-specific skeptic warning of valuations and bubbles.\n"
+            f"4. Michael (Expansionist) is cited by Sara (<Person1>) as the 'CIO of a Silicon Valley growth fund'. He focuses on pure growth momentum, pipeline potential, and upside.\n"
+            f"5. Elena (First-Principles) is cited by Sara (<Person1>) as the 'Head of Macro Research at a Swiss investment bank'. She is the strict mathematical guardian of Shariah compliance, debt limits, and asset class balancing.\n\n"
             f"EPISODE FORMAT & TIMING FLOW (Must be strictly followed):\n"
             f"1. [0 - 2 mins] THE GLOBAL PULSE:\n"
-            f"   - Sara (Person 1) opens the show with high energy. She delivers an update on major global macroeconomic news "
+            f"   - Sara (<Person1>) opens the show with high energy. She delivers an update on major global macroeconomic news "
             f"     (e.g., supply chains, raw materials, central banks) or major corporate earnings, acting as the 'Outsider' to highlight big-picture shifts.\n"
             f"2. [2 - 4 mins] THE COUNCIL ARENA & PORTFOLIO CONNECTION:\n"
-            f"   - Sara (Person 1) connects these macro shifts to our investor {user_name}'s live portfolio. She identifies current asset class gaps.\n"
+            f"   - Sara (<Person1>) connects these macro shifts to our investor {user_name}'s live portfolio. She identifies current asset class gaps.\n"
             f"   - She introduces 2-3 Shariah-compliant stock candidates from the report.\n"
             f"   - To evaluate these assets, Sara acts as the moderator, quoting and contrasting the views of our guest experts:\n"
             f"     * David (Contrarian) warning about specific risks/valuations.\n"
             f"     * Michael (Expansionist) championing the pipeline and long-term upside.\n"
             f"     * Elena (First-Principles) analyzing the debt-compliance limits and how it fits the asset balance.\n"
             f"3. [4 - 6 mins] THE VERDICT & EXECUTION (Marcus joins):\n"
-            f"   - Sara (Person 1) brings Marcus (Person 2), the Investment Committee Chairman, into the conversation.\n"
-            f"   - Marcus (Person 2) steps in with the 'Executor' mindset, assessing how {user_name} can practically implement this on Saxo Bank (e.g., tradeability constraints, suggest building the position slowly over the next 3 months).\n"
+            f"   - Sara (<Person1>) brings Marcus (<Person2>), the Investment Committee Chairman, into the conversation.\n"
+            f"   - Marcus (<Person2>) steps in with the 'Executor' mindset, assessing how {user_name} can practically implement this on Saxo Bank (e.g., tradeability constraints, suggest building the position slowly over the next 3 months).\n"
             f"   - Together, they summarize the final verdict as an 'Investor Masterclass' lesson and close the show with a warm, encouraging outro: "
             f"     'Remember, Rome wasn't built in a day, and neither is a solid portfolio. See you in the next episode of the journey!'\n\n"
             f"CRITICAL RULES:\n"
@@ -863,6 +930,8 @@ class PodcastAgent:
             conversation_config=custom_config
         )
         return audio_path
+
+
 # =====================================================================
 #  DELIVERY AGENT (HTML & VEDHÆFTNING SMTP)
 # =====================================================================
@@ -926,9 +995,9 @@ def main():
         print(f"Beregnet 4x25% hovedfordeling: {current_portfolio_weights}")
         print(f"Beregnet delsektor-fordeling: {sector_distribution}")
         
-        # 2. Hent de konkrete positioner
+        # 2. Hent de konkrete positioner (Henter nu reelle tal for Antal og Kurs)
         current_holdings = sheets_agent.get_current_holdings_details()
-        print(f"Hentet {len(current_holdings)} konkrete positioner.")
+        print(f"Hentet {len(current_holdings)} positioner.")
         
         # 3. Hent Watchlist-tickers
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
@@ -1013,7 +1082,7 @@ def main():
                 horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
+            # 9. Generer automatisk lyd-podcast
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             try:
@@ -1049,8 +1118,13 @@ def main():
         if podcast_compiled:
             attachments_list.append({"path": output_mp3, "name": "Wazir_LLM_Council_Podcast.mp3"})
             
-        # Generer dit live-formel Excel-ark til din natlige mail
-        excel_raw_bytes = generate_excel_template_bytes(current_holdings, watchlist_tickers)
+        # Generer dit live-formel Excel-ark til din natlige mail (Udfyldes nu fuldt med reelle tal og opsummeringer!)
+        excel_raw_bytes = generate_excel_template_bytes(
+            current_holdings, 
+            watchlist_tickers,
+            current_portfolio_weights,
+            sector_distribution
+        )
         attachments_list.append({"data": excel_raw_bytes, "name": "Wazir_Live_Portfolio_Template.xlsx"})
 
         # 10. Send HTML-rapport og MP3-podcast til din indbakke
