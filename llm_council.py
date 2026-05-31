@@ -22,7 +22,6 @@ try:
     langsmith.client._validate_public_prompt_pull = lambda *args, **kwargs: None
     print("Security patch: LangSmith public prompt validation bypassed successfully.")
 except ImportError:
-    # Hvis langsmith endnu ikke er installeret, fortsætter vi uden fejl
     pass
 
 # ---------------------------------------------------------------------
@@ -273,7 +272,7 @@ def generate_excel_template_bytes(holdings_list: list, watchlist_list: list, por
         ws1.cell(row=idx, column=12, value="")
         ws1.cell(row=idx, column=13, value="")
 
-    # 2. FANEN: Opsummering (Udfyldes nu automatisk med rigtige tal)
+    # 2. FANEN: Opsummering
     ws2 = wb.create_sheet(title="Opsummering")
     
     # Hovedoverskrifter
@@ -872,43 +871,19 @@ class PodcastAgent:
     def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
+        # Enkel og direkte indholds-fokuseret instruktion uden modstridende formateringsregler
         user_instructions_content = (
-            f"You are a star producer creating a professional financial podcast series in English called 'The Investor's Journey'.\n\n"
-            f"IMPORTANT FORMATTING RULE:\n"
-            f"You MUST write the dialogue using strictly the XML-style tags <Person1> and <Person2>.\n"
-            f"Every line spoken by Sara must start with <Person1> and end with </Person1>.\n"
-            f"Every line spoken by Marcus must start with <Person2> and end with </Person2>.\n"
-            f"Example:\n"
-            f"<Person1>Hello, welcome to our podcast...</Person1>\n"
-            f"<Person2>Hi Sara, glad to be here...</Person2>\n"
-            f"Do not use any other speaker tags (such as 'Sara:', 'Marcus:', or 'David:') and do not write markdown headers for the speakers.\n\n"
-            f"THE 5-ADVISOR SYNERGY STRUCTURE (Representing all 5 mindsets across 2 voices):\n"
-            f"To deliver maximum perspective without cluttering the audio, the 5 advisory mindsets are mapped elegantly:\n"
-            f"1. Sara (Host / Person 1) embodies the 'Outsider' mindset. She connects global macro trends, geopolitics, and indirect exposures (like commodity royalty models) to the portfolio.\n"
-            f"2. Marcus (Chairman / Person 2) embodies the 'Executor' mindset. He focuses entirely on practical trading on Saxo Bank, liquidity, tradeability, and executing order strategies like Dollar-Cost Averaging.\n"
-            f"3. David (Contrarian) is cited by Sara (<Person1>) as the 'Chief Strategist at a global short-fund'. He is the pure stock-specific skeptic warning of valuations and bubbles.\n"
-            f"4. Michael (Expansionist) is cited by Sara (<Person1>) as the 'CIO of a Silicon Valley growth fund'. He focuses on pure growth momentum, pipeline potential, and upside.\n"
-            f"5. Elena (First-Principles) is cited by Sara (<Person1>) as the 'Head of Macro Research at a Swiss investment bank'. She is the strict mathematical guardian of Shariah compliance, debt limits, and asset class balancing.\n\n"
-            f"EPISODE FORMAT & TIMING FLOW (Must be strictly followed):\n"
-            f"1. [0 - 2 mins] THE GLOBAL PULSE:\n"
-            f"   - Sara (<Person1>) opens the show with high energy. She delivers an update on major global macroeconomic news "
-            f"     (e.g., supply chains, raw materials, central banks) or major corporate earnings, acting as the 'Outsider' to highlight big-picture shifts.\n"
-            f"2. [2 - 4 mins] THE COUNCIL ARENA & PORTFOLIO CONNECTION:\n"
-            f"   - Sara (<Person1>) connects these macro shifts to our investor {user_name}'s live portfolio. She identifies current asset class gaps.\n"
-            f"   - She introduces 2-3 Shariah-compliant stock candidates from the report.\n"
-            f"   - To evaluate these assets, Sara acts as the moderator, quoting and contrasting the views of our guest experts:\n"
-            f"     * David (Contrarian) warning about specific risks/valuations.\n"
-            f"     * Michael (Expansionist) championing the pipeline and long-term upside.\n"
-            f"     * Elena (First-Principles) analyzing the debt-compliance limits and how it fits the asset balance.\n"
-            f"3. [4 - 6 mins] THE VERDICT & EXECUTION (Marcus joins):\n"
-            f"   - Sara (<Person1>) brings Marcus (<Person2>), the Investment Committee Chairman, into the conversation.\n"
-            f"   - Marcus (<Person2>) steps in with the 'Executor' mindset, assessing how {user_name} can practically implement this on Saxo Bank (e.g., tradeability constraints, suggest building the position slowly over the next 3 months).\n"
-            f"   - Together, they summarize the final verdict as an 'Investor Masterclass' lesson and close the show with a warm, encouraging outro: "
-            f"     'Remember, Rome wasn't built in a day, and neither is a solid portfolio. See you in the next episode of the journey!'\n\n"
-            f"CRITICAL RULES:\n"
-            f"- Output language must be strictly English.\n"
-            f"- Keep 'number noise' to an absolute minimum (use qualitative terms like 'a small gap', 'reasonable price', 'solid growth' instead of lists of raw decimals or P/E percentages).\n"
-            f"- Generate a natural, fluent conversational script optimized for Text-to-Speech playback."
+            f"Set up a high-energy educational narrative podcast. "
+            f"Explain to the listener our VIP client {user_name}'s current portfolio status and macro investment options. "
+            f"Sara (Person 1) acts as the primary host. She must present the global macro events (such as supply chains or central banks) "
+            f"and then discuss 2-3 Shariah-compliant candidates. "
+            f"To present a structured critique, Sara must summarize the views of three virtual advisors using their names and titles:\n"
+            f"- David, Chief Strategist at a global short-fund (skeptical and cautious)\n"
+            f"- Michael, CIO of a Silicon Valley growth fund (enthusiastic about pipelines and growth)\n"
+            f"- Elena, Head of Macro Research at a Swiss investment bank (focused on Shariah compliance limits and asset balance)\n\n"
+            f"Marcus (Person 2), the Investment Committee Chairman, must join Sara in the second half of the episode. "
+            f"Marcus must act as the Executor, explaining the practical tradeability on Saxo Bank and recommending a calm, step-by-step strategy. "
+            f"Both hosts must summarize the final Masterclass verdict, keep 'number noise' to an absolute minimum, and make it educational and story-driven."
         )
 
         custom_config = {
@@ -997,7 +972,7 @@ def main():
         
         # 2. Hent de konkrete positioner (Henter nu reelle tal for Antal og Kurs)
         current_holdings = sheets_agent.get_current_holdings_details()
-        print(f"Hentet {len(current_holdings)} positioner.")
+        print(f"Hentet {len(current_holdings)} konkrete positioner.")
         
         # 3. Hent Watchlist-tickers
         watchlist_tickers = sheets_agent.get_watchlist_tickers()
@@ -1082,7 +1057,7 @@ def main():
                 horizon="15+ years"
             )
             
-            # 9. Generer automatisk lyd-podcast
+            # 9. Generer automatisk lyd-podcast (RETTET: overfører nu 'Wazir' som andet parameter!)
             print("Igangsætter Podcastfy-produktion...")
             podcast_agent = PodcastAgent(GEMINI_API_KEY)
             try:
