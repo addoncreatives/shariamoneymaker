@@ -43,6 +43,7 @@ import streamlit as st
 # Sæt sidens titel og layout for et moderne look
 st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳️", layout="centered")
 
+
 # =====================================================================
 #  HJÆLPEFUNKTIONER TIL HTML & TOSPROGET SUPPORT (Live-oversættelse)
 # =====================================================================
@@ -167,8 +168,8 @@ def load_global_db_from_github():
             merged_db = STATIC_TICKER_MAP.copy()
             merged_db.update(loaded_db)
             return merged_db
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Could not fetch failsafe_db.json from GitHub: {str(e)}")
     return STATIC_TICKER_MAP
 
 failsafe_db = load_global_db_from_github()
@@ -355,7 +356,7 @@ def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -
 
 
 # =====================================================================
-#  PORTFOLIO MANAGER AGENT
+#  SÆRLIG SCREENING & AGENTER
 # =====================================================================
 class PortfolioManagerAgent:
     def __init__(self, current: dict, target: dict):
@@ -381,9 +382,6 @@ class PortfolioManagerAgent:
         return focus_category, deficit
 
 
-# =====================================================================
-#  SCREENER & COMPLIANCE AGENT
-# =====================================================================
 class ScreenerComplianceAgent:
     PROHIBITED_SECTORS = ["Financial Services", "Financial"]
     PROHIBITED_INDUSTRIES = ["Banks", "Insurance", "Aerospace & Defense", "Gambling", "Tobacco", "Distillers & Vintners", "Breweries"]
@@ -681,6 +679,158 @@ class DeliveryAgent:
 
 
 # =====================================================================
+#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
+#  (Placeret heroppe så den er defineret FØR trin-evalueringerne kører!)
+# =====================================================================
+async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
+    if is_new:
+        portfolio_distribution = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+        sector_distribution = {sec: 33.3 for sec in new_sectors}
+        holdings_list = []
+        focus_category = "Aktier"
+        deficit = 25.0
+    else:
+        total_mv = 0.0
+        for item in holdings_list:
+            symbol = item["Ticker"]
+            if "PVT_" in symbol or "CASH_" in symbol:
+                total_mv += float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item["Kurs"] = price
+                    total_mv += (price * float(item["Shares"]))
+                except Exception:
+                    total_mv += 1000.0
+
+        portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+        sector_distribution = {}
+        
+        for item in holdings_list:
+            category = item["Category"]
+            subsector = item["Sector"]
+            symbol = item["Ticker"]
+            
+            if "PVT_" in symbol or "CASH_" in symbol:
+                item_mv = float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item_mv = (price * float(item["Shares"]))
+                except Exception:
+                    item_mv = 1000.0
+                    
+            weight_chunk = (item_mv / total_mv * 100.0) if total_mv > 0 else 20.0
+            
+            if category in portfolio_distribution:
+                portfolio_distribution[category] += weight_chunk
+            if subsector not in sector_distribution:
+                sector_distribution[subsector] = 0.0
+                
+            sector_distribution[subsector] += weight_chunk
+
+        pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
+        focus_category, deficit = pm.identify_underweighted_focus()
+        
+    print(f"SaaS Fokus: {focus_category} (Gab: {deficit:.2f}%)")
+    
+    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+    combined_candidates = list(set(watchlist + growth_pool))
+    
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+    approved_stocks = screener.run_screening(focus_category)
+    target_candidates = approved_stocks[:10]
+    
+    if not target_candidates:
+        return False, "Ingen selskaber bestod screening i denne kategori i dag."
+
+    detailed_candidates_data = []
+    for stock in target_candidates:
+        symbol = stock["symbol"]
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            rev_growth = info.get("revenueGrowth", "N/A")
+            op_margins = info.get("operatingMargins", "N/A")
+            free_cashflow = info.get("freeCashflow", "N/A")
+            
+            detailed_candidates_data.append({
+                "symbol": symbol,
+                "name": stock["name"],
+                "pe_ratio": stock["pe_ratio"],
+                "debt_ratio": stock["debt_ratio"],
+                "sector": stock["sector"],
+                "industry": stock["industry"],
+                "is_etf": stock.get("is_etf", False),
+                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
+                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                "currency": info.get("currency", "N/A")
+            })
+        except Exception:
+            detailed_candidates_data.append(stock)
+
+    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
+    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
+    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
+    
+    council_agent = CouncilAgent(GEMINI_API_KEY)
+    report_html = council_agent.run_proactive_analysis(
+        candidates_data=detailed_candidates_data,
+        category=focus_category,
+        deficit=deficit,
+        current_portfolio_str=current_weights_str,
+        current_holdings_str=current_holdings_str,
+        sector_distribution_str=sector_distribution_str,
+        user_name=user_name,
+        horizon=horizon
+    )
+
+    excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist, portfolio_distribution, sector_distribution)
+
+    output_mp3 = "llm_council_podcast.mp3"
+    podcast_compiled = False
+    
+    # Opret en ren tekstbeskrivelse til podcast-værterne i stedet for tung e-mail HTML
+    clean_data_text = (
+        f"VIP Client: {user_name}\n"
+        f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
+        f"Dynamic sectors:\n{sector_distribution_str}\n\n"
+        f"Current holdings:\n{current_holdings_str}\n\n"
+        f"Target focus category tonight: {focus_category} (deficit: {deficit:.2f}%)\n\n"
+        f"Screened compliant stocks:\n"
+    )
+    for s in detailed_candidates_data:
+        clean_data_text += f"- {s.get('name')} ({s.get('symbol')}): Sector: {s.get('sector')}, Industry: {s.get('industry')}. Price: {s.get('current_price')} {s.get('currency')}. Revenue Growth: {s.get('revenue_growth')}, Operating Margin: {s.get('operating_margins')}, FCF: {s.get('free_cash_flow')}. Debt Ratio: {s.get('debt_ratio')}.\n"
+
+    podcast_agent = PodcastAgent(GEMINI_API_KEY)
+    generated_file = podcast_agent.generate_podcast_audio(clean_data_text, user_name)
+    
+    if generated_file and os.path.exists(generated_file):
+        import shutil
+        shutil.copyfile(generated_file, output_mp3)
+        podcast_compiled = True
+
+    attachments_list = []
+    if podcast_compiled:
+        attachments_list.append({"path": output_mp3, "name": f"{user_name}_LLM_Council_Podcast.mp3"})
+    attachments_list.append({"data": excel_raw_bytes, "name": f"{user_name}_Live_Portfolio_Template.xlsx"})
+
+    os.environ["EMAIL_RECEIVER"] = receiver_email
+    subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+    
+    DeliveryAgent.send_email(
+        subject=subject,
+        html_content=report_html,
+        attachments=attachments_list
+    )
+    return True, "Briefing, lyd-podcast og dit Excel-ark er nu sendt til din e-mailadresse."
+
+
+# =====================================================================
 #  DATABASE INTEGRATION (GOOGLE WEB APP)
 # =====================================================================
 def load_user_portfolio_from_db(email: str, password: str) -> dict:
@@ -743,7 +893,7 @@ if "is_new_investor" not in st.session_state:
 st.caption(_t(f"Trin {st.session_state.step} af 5", f"Step {st.session_state.step} of 5"))
 
 
-# --- TRIN 1: VELKOMST & KORT KONTEKST ---
+# --- TRIN 1: VELKOMST & KORT KONTEKST (BIBEHOLDER DIN ORIGINALE DARK MODE STYLING UDEN FASTE BAGGRUNDSFARVER) ---
 if st.session_state.step == 1:
     # Komprimeret og lynhurtigt læst onboardingtekst, tilpasset Dark Mode
     render_html(_t("""
@@ -1158,157 +1308,6 @@ elif st.session_state.step == 5:
 
 
 # =====================================================================
-#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
-# =====================================================================
-async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
-    if is_new:
-        portfolio_distribution = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
-        sector_distribution = {sec: 33.3 for sec in new_sectors}
-        holdings_list = []
-        focus_category = "Aktier"
-        deficit = 25.0
-    else:
-        total_mv = 0.0
-        for item in holdings_list:
-            symbol = item["Ticker"]
-            if "PVT_" in symbol or "CASH_" in symbol:
-                total_mv += float(item.get("manual_value", 1000))
-            else:
-                try:
-                    t = yf.Ticker(symbol)
-                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
-                    item["Kurs"] = price
-                    total_mv += (price * float(item["Shares"]))
-                except Exception:
-                    total_mv += 1000.0
-
-        portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
-        sector_distribution = {}
-        
-        for item in holdings_list:
-            category = item["Category"]
-            subsector = item["Sector"]
-            symbol = item["Ticker"]
-            
-            if "PVT_" in symbol or "CASH_" in symbol:
-                item_mv = float(item.get("manual_value", 1000))
-            else:
-                try:
-                    t = yf.Ticker(symbol)
-                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
-                    item_mv = (price * float(item["Shares"]))
-                except Exception:
-                    item_mv = 1000.0
-                    
-            weight_chunk = (item_mv / total_mv * 100.0) if total_mv > 0 else 20.0
-            
-            if category in portfolio_distribution:
-                portfolio_distribution[category] += weight_chunk
-            if subsector not in sector_distribution:
-                sector_distribution[subsector] = 0.0
-                
-            sector_distribution[subsector] += weight_chunk
-
-        pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
-        focus_category, deficit = pm.identify_underweighted_focus()
-        
-    print(f"SaaS Fokus: {focus_category} (Gab: {deficit:.2f}%)")
-    
-    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
-    combined_candidates = list(set(watchlist + growth_pool))
-    
-    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
-    approved_stocks = screener.run_screening(focus_category)
-    target_candidates = approved_stocks[:10]
-    
-    if not target_candidates:
-        return False, "Ingen selskaber bestod screening i denne kategori i dag."
-
-    detailed_candidates_data = []
-    for stock in target_candidates:
-        symbol = stock["symbol"]
-        try:
-            t = yf.Ticker(symbol)
-            info = t.info
-            rev_growth = info.get("revenueGrowth", "N/A")
-            op_margins = info.get("operatingMargins", "N/A")
-            free_cashflow = info.get("freeCashflow", "N/A")
-            
-            detailed_candidates_data.append({
-                "symbol": symbol,
-                "name": stock["name"],
-                "pe_ratio": stock["pe_ratio"],
-                "debt_ratio": stock["debt_ratio"],
-                "sector": stock["sector"],
-                "industry": stock["industry"],
-                "is_etf": stock.get("is_etf", False),
-                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
-                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
-                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
-                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
-                "currency": info.get("currency", "N/A")
-            })
-        except Exception:
-            detailed_candidates_data.append(stock)
-
-    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
-    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
-    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
-    
-    council_agent = CouncilAgent(GEMINI_API_KEY)
-    report_html = council_agent.run_proactive_analysis(
-        candidates_data=detailed_candidates_data,
-        category=focus_category,
-        deficit=deficit,
-        current_portfolio_str=current_weights_str,
-        current_holdings_str=current_holdings_str,
-        sector_distribution_str=sector_distribution_str,
-        user_name=user_name,
-        horizon=horizon
-    )
-
-    excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist, portfolio_distribution, sector_distribution)
-
-    output_mp3 = "llm_council_podcast.mp3"
-    podcast_compiled = False
-    
-    # Ren tekstbeskrivelse til podcasten i stedet for den tunge HTML-kode
-    clean_data_text = (
-        f"VIP Client: {user_name}\n"
-        f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
-        f"Dynamic sectors:\n{sector_distribution_str}\n\n"
-        f"Current holdings:\n{current_holdings_str}\n\n"
-        f"Target focus category tonight: {focus_category} (deficit: {deficit:.2f}%)\n\n"
-        f"Screened compliant stocks:\n"
-    )
-    for s in detailed_candidates_data:
-        clean_data_text += f"- {s.get('name')} ({s.get('symbol')}): Sector: {s.get('sector')}, Industry: {s.get('industry')}. Price: {s.get('current_price')} {s.get('currency')}. Revenue Growth: {s.get('revenue_growth')}, Operating Margin: {s.get('operating_margins')}, FCF: {s.get('free_cash_flow')}. Debt Ratio: {s.get('debt_ratio')}.\n"
-
-    podcast_agent = PodcastAgent(GEMINI_API_KEY)
-    generated_file = podcast_agent.generate_podcast_audio(clean_data_text, user_name)
-    
-    if generated_file and os.path.exists(generated_file):
-        import shutil
-        shutil.copyfile(generated_file, output_mp3)
-        podcast_compiled = True
-
-    attachments_list = []
-    if podcast_compiled:
-        attachments_list.append({"path": output_mp3, "name": f"{user_name}_LLM_Council_Podcast.mp3"})
-    attachments_list.append({"data": excel_raw_bytes, "name": f"{user_name}_Live_Portfolio_Template.xlsx"})
-
-    os.environ["EMAIL_RECEIVER"] = receiver_email
-    subject = f"[LLM Council] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
-    
-    DeliveryAgent.send_email(
-        subject=subject,
-        html_content=report_html,
-        attachments=attachments_list
-    )
-    return True, "Briefing, lyd-podcast og dit Excel-ark er nu sendt til din e-mailadresse."
-
-
-# =====================================================================
 #  NATIVE, RESPONSIV DISCLAIMER (LØSER JURIDISK ANVARS-PROBLEMET)
 # =====================================================================
 st.write(" ")
@@ -1316,7 +1315,7 @@ st.warning(_t(
     "Legal Disclaimer:\n\n"
     "LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. "
     "Vi tilbyder IKKE autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.\n\n"
-    "Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. "
+    "Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs av forskellige retslærde og madhabs. "
     "Du bør altid basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.\n\n"
     "For en uafhængig og manuel revision af gældsforhold, regnskabstal og compliance anbefaler vi at anvende det anerkendte værktøj Zoya Finance Platform.",
     
