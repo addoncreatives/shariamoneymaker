@@ -129,7 +129,7 @@ TARGET_SUBSECTORS = [
     "Water Infrastructure & Desalination"
 ]
 
-# Static failsafe ticker map
+# Det statiske, lynhurtige kartotek (KID-fri og klar til Saxo)
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
     "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
@@ -306,7 +306,7 @@ def calculate_passive_rebalancing_distribution(holdings_list: list, target_alloc
 
 
 # =====================================================================
-#  HTML DEBATE PARSER
+#  HTML DEBATE PARSER (OVERSAT TIL SWOT HOVEDKASSER)
 # =====================================================================
 def parse_debate_and_chairman(html_content: str) -> dict:
     results = {
@@ -459,7 +459,7 @@ def get_category_and_sector_failsafe(ticker: str, target_category: str = None) -
 
 
 # =====================================================================
-#  SCREENER AGENTS
+#  SÆRLIG SCREENING & AGENTER
 # =====================================================================
 class PortfolioManagerAgent:
     def __init__(self, current: dict, target: dict):
@@ -686,7 +686,7 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  ON-DEMAND SEKTOR PROSPEKTOR AGENT (MED RIGTIG RÅDS-DEBAT PER SELSKAB)
+#  ON-DEMAND SEKTOR PROSPEKTOR AGENT (SWOT MODEL INDBYGGET)
 # =====================================================================
 def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_list: list = None) -> str:
     """
@@ -718,12 +718,12 @@ def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_
         "ir_link": "https://www.google.com/search?q=TICKER+investor+relations",
         "kid_status": "stock",
         "opinions": {{
-          "contrarian": "A short (1-2 sentences) critical, highly skeptical, risk-obsessed argument warning of margins or valuation.",
-          "expansionist": "A short (1-2 sentences) highly bullish argument focusing on growth potential and momentum.",
-          "outsider": "A short (1-2 sentences) macro argument linking the company to global trends.",
-          "first_principles": "A short (1-2 sentences) analysis of Shariah debt-compliance under AAOIFI rules.",
-          "executor": "A short (1-2 sentences) pragmatic assessment of buy-and-hold tradeability on Saxo.",
-          "chairman": "A short (1-2 sentences) final committee recommendation on how to buy (e.g. dollar-cost averaging)."
+          "contrarian": "A short (2-3 sentences) critical, highly skeptical, risk-obsessed argument warning of margins, valuations, or competitor moats.",
+          "expansionist": "A short (2-3 sentences) highly bullish argument focusing on growth potential, secure cash flow, and market-leading momentum.",
+          "outsider": "A short (2-3 sentences) macro argument linking the company to secular global megatrends and geopolitical dynamics.",
+          "first_principles": "A short (2-3 sentences) analysis of Shariah debt-compliance under strict AAOIFI rules (must stay under 30% debt-to-market-cap ratio).",
+          "executor": "A short (2-3 sentences) pragmatic assessment of buy-and-hold tradeability on Saxo and Nordnet.",
+          "chairman": "A short (2-3 sentences) final committee recommendation on how to purchase (e.g. recommend dollar-cost averaging over 3 months)."
         }}
       }}
     ]
@@ -740,14 +740,28 @@ def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_
         print(f"Fejl under Sektor-prospektering: {str(e)}")
     return "[]"
 
+def extract_json_array(text: str) -> list:
+    """Metode til fejlfrit at trække og parse et JSON-array fra Gemini output."""
+    match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
+    try:
+        return json.loads(text.strip().replace("```json", "").replace("```", "").strip())
+    except Exception:
+        return []
+
 
 # =====================================================================
-#  FEJLSIKRET DYNAMISK ETF PURIFIER (KORRIGERET TIL AT TAGE DYNAMISK TOP-N)
+#  FEJLSIKRET DYNAMISK ETF PURIFIER (KORRIGERET TIL BENHÅRDT SIKKERHEDS-TJEK)
 # =====================================================================
 def purify_conventional_etf(api_key: str, etf_ticker: str, top_n: int) -> list:
     """
-    Kalder Gemini til at identificere de top-N største beholdninger i en konventionel ETF,
-    analysere deres Shariah-compliance (forrentet gæld og forretning),
+    Kalder Gemini til at identificere de top-N største selskaber i en konventionel ETF,
+    analysere deres Shariah-compliance (hvor forretningsmodellen samt rentebærende gæld
+    mod markedsværdien under 30% (AAOIFI-regler) er det primære tjek),
     og returnere en JSON-liste med resultaterne.
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
@@ -755,13 +769,13 @@ def purify_conventional_etf(api_key: str, etf_ticker: str, top_n: int) -> list:
     You are the elite financial advisory council ("LLM Council") specializing in AAOIFI Shariah screening.
     The user wants to purify the conventional ETF with ticker '{etf_ticker}' by auditing its top {top_n} largest holdings.
     
-    YOUR TASK:
-    1. Identify the top {top_n} largest individual stock holdings of the conventional ETF '{etf_ticker}' (e.g., if SPY, identify its top {top_n} holdings).
-    2. Audit each company against AAOIFI standards:
-       - Business compliance (no alcohol, conventional finance, pork, weapons, etc.).
-       - Financial compliance (interest-bearing debt under 30% of market cap).
+    YOUR TASK (SHARIAH DEBT-AUDIT IS THE HIGHEST PRIORITY):
+    1. Identify the top {top_n} largest individual stock holdings of the conventional ETF '{etf_ticker}' (e.g., if SPY, identify its top holdings).
+    2. Audit each company against strict Shariah compliance and AAOIFI standards:
+       - Business compliance (strictly no conventional financial services, banks, insurance, pork, alcohol, weapons, gambling, etc.).
+       - Debt compliance (strictly no companies where interest-bearing debt exceeds 30% of their total market capitalization). If debt is high, you MUST mark them as Non-Compliant.
     3. Classify each holding as either "Compliant" or "Non-Compliant".
-    4. Provide a very brief, 1-sentence reason for your decision in English.
+    4. Provide a very brief, 1-sentence reason for your decision in English (explicitly mention if they were purged due to high interest-bearing debt, banking services, etc.).
     5. Format your response strictly as a raw JSON array of objects (do NOT use markdown "```json" blocks):
     
     JSON Schema:
@@ -788,19 +802,6 @@ def purify_conventional_etf(api_key: str, etf_ticker: str, top_n: int) -> list:
     except Exception as e:
         print(f"ETF Purifier fejlede: {str(e)}")
     return []
-
-def extract_json_array(text: str) -> list:
-    """Metode til fejlfrit at trække og parse et JSON-array fra Gemini output."""
-    match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except Exception:
-            pass
-    try:
-        return json.loads(text.strip().replace("```json", "").replace("```", "").strip())
-    except Exception:
-        return []
 
 
 # =====================================================================
@@ -994,7 +995,7 @@ if "last_peeled_etf_ticker" not in st.session_state:
 #  STREAMLIT UI STEPS
 # =====================================================================
 
-# Diskret status-indikator i toppen
+# Diskret status-indikator i toppen (Rettet sv/no sprogfejl!)
 st.caption(_t(
     f"Trin {st.session_state.step} af 5", 
     f"Steg {st.session_state.step} av 5", 
@@ -1096,13 +1097,13 @@ if st.session_state.step == 1:
 
         # DYNAMISK ON-DEMAND SEKTOR RESEARCH (INTERAKTIVT DIVE-IN MED WATCHLIST TILFØJELSE)
         st.write("---")
-        st.subheader("🔍 " + _t("On-Demand Sektor Research", "On-Demand Sektor-Research", "On-Demand Sektor-Research", "Sektorin tarkastelu pyynnöstä", "On-Demand Sector Research"))
+        st.subheader("🔍 " + _t("Strategisk Rådgiver-Terminal", "Strategisk Rådgivarterminal", "Strategisk Rådgiverterminal", "Strateginen Neuvonantajapääte", "Strategic Advisor Terminal"))
         st.write(_t(
-            "Vælg en delsektor nedenfor for at lade dit LLM Council foretage en øjeblikkelig prospektering af 3 stærke, compliant vækstcases. Du kan tilføje dem direkte til din Watchlist herunder.",
-            "Välj en delsektor nedan för att låta ditt LLM Council göra en omedelbar prospektering av 3 starka, compliant tillväxtcase. Du kan lägga till dem direkt i din Watchlist nedan.",
-            "Velg en delsektor nedenfor for å la ditt LLM Council foreta en dypgående prospektering av 3 sterke, compliant vekstcases. Du kan legge dem til i din Watchlist direkte nedenfor.",
-            "Valitse alta osa-sektori, jotta LLM Council voi tehdä välittömän arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta. Voit lisätä ne suoraan tarkkailulistallesi alta.",
-            "Select a sub-sector below to have your LLM Council perform an on-demand prospecting of 3 strong, compliant growth cases. You can add them directly to your Watchlist below."
+            "Vælg en delsektor nedenfor for at lade dine rådgivere foretage en øjeblikkelig prospektering af 3 stærke, compliant vækstcases. Du kan tilføje dem direkte til din Watchlist herunder.",
+            "Välj en delsektor nedan för att låta dina rådgivare göra en omedelbar prospektering av 3 starka, compliant tillväxtcase. Du kan lägga till dem direkt i din Watchlist nedan.",
+            "Velg en delsektor nedenfor for å la dine rådgivere foreta en dypgående prospektering av 3 sterke, compliant vekstcases. Du kan legge dem til i din Watchlist direkte nedenfor.",
+            "Valitse alta osa-sektori, jotta neuvonantajat voivat tehdä välittömän arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta. Voit lisätä ne suoraan tarkkailulistallesi alta.",
+            "Select a sub-sector below to have your advisors perform an on-demand prospecting of 3 strong, compliant growth cases. You can add them directly to your Watchlist below."
         ))
         
         col_sec_sel, col_sec_reload = st.columns([2, 1])
@@ -1129,10 +1130,9 @@ if st.session_state.step == 1:
                         time.sleep(1)
                         st.rerun()
 
-        if st.button("🚀 " + _t("Engager LLM Council", "Engagera LLM Council", "Engasjer LLM Council", "Käynnistä LLM Council", "Engage LLM Council"), use_container_width=True):
-            # Nulstiller ignore-listen når der vælges en ny sektor manuelt
+        if st.button("🚀 " + _t("Engager rådgivere", "Engagera rådgivare", "Engasjer rådgivere", "Käynnistä neuvonantajat", "Engage Advisors"), use_container_width=True):
             st.session_state.prospect_ignore_list = []
-            with st.spinner(_t("Rådet analyserer sektoren og danner selskabs-prospekter...", "Rådet analyserar sektorn och genererar prospekt...", "Rådet analyserer sektoren og genererer prospekter...", "Neuvosto analysoi sektoria ja luo kohteita...", "The Council is analyzing the sector and compiling investment cases...")):
+            with st.spinner(_t("Rådgiverne analyserer sektoren og danner selskabs-prospekter...", "Rådgivarna analyserar sektorn och genererar prospekt...", "Rådgiverne analyserer sektoren og genererer prospekter...", "Neuvonantajat analysoivat sektoria ja luovat kohteita...", "The advisors are analyzing the sector and compiling investment cases...")):
                 prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, [])
                 prospects_parsed = extract_json_array(prospect_json)
                 if prospects_parsed:
@@ -1143,7 +1143,7 @@ if st.session_state.step == 1:
         # Visning af de fundne prospekter med interaktiv råds-debat karrusel (SWIPE/TABS PER CASE!)
         if st.session_state.last_sector_prospects_list:
             st.write(" ")
-            st.subheader("📋 " + _t(f"Anbefalede prospects i {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet sektorilla {st.session_state.last_research_sector_name}", f"Recommended prospects in {st.session_state.last_research_sector_name}"))
+            st.subheader("📋 " + _t(f"Anbefalede prospects i {st.session_state.last_research_sector_name}", f"Rekommenderade innehav inom {st.session_state.last_research_sector_name}", f"Anbefalte prospects innen {st.session_state.last_research_sector_name}", f"Suositellut kohteet salkkuun {st.session_state.last_research_sector_name}", f"Recommended prospects in {st.session_state.last_research_sector_name}"))
             
             for idx, p in enumerate(st.session_state.last_sector_prospects_list):
                 symbol = p.get("symbol", "Other").upper()
@@ -1180,22 +1180,22 @@ if st.session_state.step == 1:
                                 time.sleep(1)
                                 st.rerun()
 
-                    # INTERAKTIV RÅDS-DEBAT SWIPE FOR DETTE ENKELTE PROSPEKT (SARA & MARCUS VISION)
+                    # INTERAKTIV RÅDS-DEBAT SWIPE FOR DETTE ENKELTE PROSPEKT (SWOT MODEL!)
                     if opinions:
                         st.write(" ")
                         tab_names = [
-                            "🔴 Contrarian", 
-                            "🟢 Expansionist", 
-                            "🟣 Outsider", 
-                            "🔘 First-Principles", 
-                            "🔵 Executor", 
-                            "👑 Chairman"
+                            "💪 " + _t("Styrker", "Styrkor", "Styrker", "Vahvuudet", "Strengths"), 
+                            "⚠️ " + _t("Svagheder", "Svagheter", "Svakheter", "Heikkoudet", "Weaknesses"), 
+                            "🚀 " + _t("Muligheder", "Möjligheter", "Muligheter", "Mahdollisuudet", "Opportunities"), 
+                            "🛡️ " + _t("Trusler & Gæld", "Hot & Skulder", "Trusler & Gjeld", "Uhat & Velka", "Threats & Debt"), 
+                            "🔵 " + _t("Saxo Forhold", "Saxo-villkor", "Saxo-forhold", "Saxo-ehdot", "Saxo Tradeability"), 
+                            "👑 " + _t("Rådets Dom", "Rådets dom", "Rådets dom", "Neuvoston tuomio", "Strategic Verdict")
                         ]
                         prospect_tabs = st.tabs(tab_names)
                         with prospect_tabs[0]:
-                            st.info(opinions.get("contrarian") or "No comment.")
+                            st.info(opinions.get("expansionist") or "No comment.")
                         with prospect_tabs[1]:
-                            st.success(opinions.get("expansionist") or "No comment.")
+                            st.error(opinions.get("contrarian") or "No comment.")
                         with prospect_tabs[2]:
                             st.warning(opinions.get("outsider") or "No comment.")
                         with prospect_tabs[3]:
@@ -1298,7 +1298,7 @@ if st.session_state.step == 1:
         <strong>LLM Council er sat i verden for at åbne markedet op igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
-        Vi finkæmmer det globale marked for dig – fra brede islamiske indeksfonde (som Invesco Dow Jones) og spændende regions-ETF'er (som f.eks. Saudi-Arabien) to stærke enkeltaktier. Vores værktøj sorterer automatisk de låste roadblocks fra, så du kun præsenteres for Shariah-godkendte investeringer, du rent faktisk kan købe direkte fra din foretrukne nordiske platform.
+        Vi finkæmmer det globale marked for dig – fra brede islamiske indeksfonde (som Invesco Dow Jones) og spændende regions-ETF'er (som f.eks. Saudi-Arabien) til stærke enkeltaktier. Vores værktøj sorterer automatisk de låste roadblocks fra, så du kun præsenteres for Shariah-godkendte investeringer, du rent faktisk kan købe direkte fra din foretrukne nordiske platform.
     </p>
 </div>
 """, """
@@ -1315,7 +1315,7 @@ if st.session_state.step == 1:
         <strong>LLM Council skapades för att öppna marknaden igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
-        Vi finkämme den globala marknaden åt dig – från breda islamiska indexfonder (som Invesco Dow Jones) och spännande region-ETF:er (som f.ex. Saudiarabien) till starka enskilda aktier. Vårt verktyg sorterar automatiskt bort de låsta hindren, så att du bara presenteras för Shariah-godkända investeringar som du faktiskt kan köpa direkt från din favoritplattform i Norden.
+        Vi finkämme den globala marknaden åt dig – från breda islamiska indexfonde (som Invesco Dow Jones) och spännande region-ETF:er (som f.ex. Saudiarabien) till starka enskilda aktier. Vårt verktyg sorterar automatiskt bort de låsta hindren, så att du bara presenteras för Shariah-godkända investeringar som du faktiskt kan köpa direkt från din favoritplattform i Norden.
     </p>
 </div>
 """, """
@@ -1329,7 +1329,7 @@ if st.session_state.step == 1:
         På grunn av komplekse EU-regler er mange store islamiske fond sperret på de nordiske handelsplattformene. Det etterlater deg i en umulig blindvei: Enten må du inngå kompromiss med dine verdier, la helt være å investere, eller bruke uoverskuelig mye tid på selv å leke aksjeanalytiker og scanne regnskaper.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council er satt i verden for å åpne markedet opp igjen.</strong>
+        <strong>LLM Council er satt i verden for å åpne markedet opp igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         We scan the global market for you – from broad Islamic index funds (like Invesco Dow Jones) and exciting region-ETFs (such as Saudi Arabia) to strong single stocks. Our tool automatically filters out the locked roadblocks, so you are only presented with Shariah-approved investments you can actually buy directly from your favorite Nordic platform.
@@ -1556,7 +1556,7 @@ elif st.session_state.step == 3:
             f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to allocate {difference}%."
         ))
     else:
-        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen er nøyaktig 100%! Du kan nå fortsette.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
+        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Allocation is exactly 100%! Du kan nu gå videre.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
         st.session_state.targets = {
             "Aktier": float(target_stocks),
             "Sukuk": float(target_sukuk),
@@ -1631,7 +1631,7 @@ elif st.session_state.step == 4:
             col_m3, col_m4 = st.columns(2)
             with col_m3:
                 manual_category = st.selectbox(_t("Aktivklasse:", "Tillgångsslag:", "Aktivklasse:", "Omaisuusluokka:", "Asset class:"), ["Cash/Private", "Sukuk", "Commodities"])
-            with col_m4:
+            with col_m4 = st.columns(1):
                 manual_sector = st.selectbox(_t("Delsektor:", "Delsektor:", "Delsektor:", "Sektori:", "Sub-sector:"), TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
                 
             if st.button(_t("➕ Tilføj manuelt aktiv", "➕ Lägg till manuell tillgång", "➕ Legg til manuelt aktiv", "➕ Lisää manuaalinen omaisuuserä", "➕ Add manual asset"), use_container_width=True):
@@ -1759,7 +1759,7 @@ elif st.session_state.step == 4:
 
 # --- TRIN 5: WATCHLIST & AKTIVERING (MED FEJLSIKRET INLINE-DOWNLOAD OG VISNING) ---
 elif st.session_state.step == 5:
-    st.subheader(_t("Udsendelse & Aktiver dit LLM Council", "Sändning & Aktivera ditt LLM Council", "Utsendelse & Aktiver ditt LLM Council", "Lähetys & Aktivoi LLM Council", "Delivery & Activate your LLM Council"))
+    st.subheader(_t("Udsendelse & Hack din portefølje", "Sändning & Aktivera", "Utsendelse & Aktiver", "Lähetys & Aktivoi", "Delivery & Activate your LLM Council"))
     
     # Trin 5 Watchlist input - Synkroniseret direkte med din Session State!
     watchlist_str = ", ".join(st.session_state.watchlist_list)
@@ -1855,7 +1855,7 @@ elif st.session_state.step == 5:
                 {}
             )
             st.download_button(
-                label="📥 " + _t("Hent mit Excel-ark", "Download Excel-ark", "Ladda ner mitt Excel-ark", "Lataa Excel-salkkuni", "Download Excel Sheet"),
+                label="📥 " + _t("Hent mit Excel-ark", "Ladda ner mitt Excel-ark", "Download Excel-ark", "Lataa Excel-salkkuni", "Download Excel Sheet"),
                 data=excel_bytes,
                 file_name=f"{st.session_state.user_name}_Live_Portfolio.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1893,7 +1893,7 @@ st.warning(_t(
     "Vi erbjuder INTE auktoriserad eller licensierad finansiell rådgivning, och vi fattar inte formella investeringsbeslut för din räkning.\n\n"
     "Finansiella marknader innebär alltid en risk för förlust, och Shariah-tolkningar kan variera mellan olika rättslärda och madhabs. "
     "Du bör alltid basera dina slutgiltiga investeringsval på dina egna bedömningar, personliga övertygelser och sunt förnuft.\n\n"
-    "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderar vi att använda det erkända verktyget Zoya Finance Platform.",
+    "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderad att använda det erkända verktyget Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
     "LLM Council er et automatisert, AI-basert informasjons- og inspirasjonsverktøy til personlig bruk. "
