@@ -44,6 +44,18 @@ import streamlit as st
 st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳️", layout="centered")
 
 # =====================================================================
+#  HJÆLPEFUNKTION TIL AT FORHINDRE HTML-KODEBLOKKE I DARK MODE
+# =====================================================================
+def render_html(html_str: str):
+    """
+    Renser HTML-strengen for linjeskift og indrykninger, så Streamlits
+    Markdown-parser aldrig forveksler HTML med en rå kodeblok.
+    """
+    clean_html = "".join([line.strip() for line in html_str.splitlines()])
+    st.markdown(clean_html, unsafe_allow_html=True)
+
+
+# =====================================================================
 #  CONFIGURATION & STANDARD TARGET WEIGHTS
 # =====================================================================
 
@@ -705,55 +717,24 @@ if "is_logged_in" not in st.session_state:
 st.title("🗳️ LLM Council")
 st.caption("PREMIUM ASSET ALLOCATION & PORTFOLIO COMPANION")
 
-# Rendering af Stepper UI (Uden indrykning for at undgå Markdown-blokke)
-step_names = ["1. Velkomst", "2. Login/Profil", "3. Investeringsprofil", "4. Portefølje", "5. Aktivering"]
-stepper_html = """
-<div style="display: flex; flex-direction: row; justify-content: space-between; gap: 8px; background-color: #F8FAFC; padding: 12px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 25px; overflow-x: auto; -webkit-overflow-scrolling: touch;">
-"""
-for i, name in enumerate(step_names, start=1):
-    is_active = st.session_state.step == i
-    color = "#C5A880" if is_active else "#94A3B8"
-    border_bottom = "2px solid #C5A880" if is_active else "none"
-    font_weight = "bold" if is_active else "normal"
-    
-    stepper_html += f"""
-    <div style="flex: 1; text-align: center; font-size: 12px; font-family: sans-serif; font-weight: {font_weight}; color: {color} !important; border-bottom: {border_bottom}; padding-bottom: 4px; min-width: 80px; white-space: nowrap;">
-        {name}
-    </div>
-"""
-stepper_html += "</div>"
-st.markdown(stepper_html, unsafe_allow_html=True)
 
-
-# --- TRIN 1: VELKOMST & KONTEKST ---
+# --- TRIN 1: VELKOMST & KORT KONTEKST (BIBEHOLDER DIN ORIGINALE DARK MODE STYLING UDEN FASTE BAGGRUNDSFARVER) ---
 if st.session_state.step == 1:
-    st.markdown("""
-<div style="border: 1px solid #E2E8F0; padding: 25px; border-radius: 8px; background-color: #FFFFFF; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); color: #1E293B !important;">
-    <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
-    <p style="color: #334155 !important; margin-bottom: 20px;">
-        Som muslimsk investor i Norden (hvis du f.eks. benytter handelsplatforme som <strong>Nordnet, Saxo Bank eller Avanza</strong>) 
-        møder du hurtigt en stor barriere: De populære automatiske Shariah-screening-apps (f.eks. Zoya eller Sajida) 
-        tilbyder ikke direkte integrationsmuligheder med nordiske børser og banker.
+    # Komprimeret og kortere onboardingtekst, placeret i din oprindelige boks uden forced background-color
+    render_html("""
+<div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+    <h3 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ En gennemsigtig guide for den bevidste investor</h3>
+    <p style="margin-bottom: 15px;">
+        Som muslimsk investor i Norden (Saxo Bank, Nordnet, Avanza osv.) har du ikke adgang til automatiserede integrationsløsninger. 
+        Det tvinger dig ofte ud i tidskrævende, manuel screening af Shariah-gældsregler (AAOIFI-standarder) og selskabshistorier.
     </p>
-    <p style="color: #334155 !important; margin-bottom: 20px;">
-        Det efterlader dig med et svært valg: Enten skal du gå på kompromis med dine overbevisninger ved ikke at screene grundigt, 
-        eller også skal du bruge utallige timer på selv at undersøge regnskaber, gældsforhold og Shariah-standarder helt fra bunden.
+    <p style="margin-bottom: 15px;">
+        <strong>LLM Council er din selvhjulpne makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste AI-beslutninger. Vi hjælper dig med at opbygge og rebalancere en robust, diversificeret portefølje fordelt på fire søjler: <strong>Equities</strong> (Aktier), <strong>Sukuk</strong> (Islamiske Certifikater), <strong>Commodities</strong> (Råvarer) og <strong>Cash/Private</strong>.
     </p>
-    <p style="color: #334155 !important; margin-bottom: 20px;">
-        <strong>LLM Council er din selvhjulpne og gennemsigtige makker.</strong> Vi tilbyder ikke finansiel rådgivning eller låste, uigennemskuelige AI-beslutninger. Vi giver dig i stedet et praktisk og metodisk værktøj til at opbygge og rebalancere en robust, langsigtet portefølje baseret på anerkendte finansielle spilleregler.
-    </p>
-    
-    <h3 style="font-family: 'Georgia', serif; margin-top: 25px; color: #0F172A !important;">📊 De 4 Søjler i en Robust Porteføljestruktur</h3>
-    <p style="color: #334155 !important; margin-bottom: 10px;">At sammensætte en solid og diversificeret formue som bevidst investor handler om at fordele dine aktiver på fire primære motorer, der beskytter og vækster dine midler uafhængigt af hinanden:</p>
-    <ul style="color: #334155 !important; margin-bottom: 20px;">
-        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Equities (Aktier):</strong> Ejerskab i globale virksomheder, der screenes i overensstemmelse med de anerkendte <strong>AAOIFI</strong>-retningslinjer (herunder at selskabets forrentede gæld skal udgøre mindre end 30% af dets markedsværdi).</li>
-        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Sukuk (Islamiske Certifikater):</strong> Erstatningen for traditionelle, rentebærende obligationer (Riba). Sukuk genererer afkast via lejeindtægter eller overskudsdeling fra reelle, fysiske aktiver og skaber en stabil indkomststrøm.</li>
-        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Commodities (Råvarer):</strong> Fysiske råstoffer som guld, sølv eller industrielle metaller, der fungerer som din primære beskyttelse mod inflation og valutaforringelse.</li>
-        <li style="margin-bottom: 8px;"><strong style="color: #0F172A !important;">Cash/Private (Kontanter & Private selskaber):</strong> Likvide midler eller direkte private investeringer, der sikrer taktisk fleksibilitet og handlefrihed, når markedet korrigerer.</li>
-    </ul>
 </div>
-""", unsafe_allow_html=True)
+""")
     
+    # Knappen er nu placeret lige under boksen uden lange mellemsider, så den er let synlig på telefonen
     if st.button("Kom i gang ➔"):
         st.session_state.step = 2
         st.rerun()
@@ -761,7 +742,7 @@ if st.session_state.step == 1:
 
 # --- TRIN 2: LOGIN & PROFILOPRETTELSE ---
 elif st.session_state.step == 2:
-    st.subheader("Trin 2: Opret din SaaS-profil eller log ind")
+    st.subheader("Opret din profil eller log ind")
     st.write("Dine oplysninger gemmes sikkert, så din personlige portefølje og dine ugentlige briefinger synkroniseres automatisk.")
     
     col_l1, col_l2 = st.columns(2)
@@ -841,7 +822,7 @@ elif st.session_state.step == 2:
 
 # --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING ---
 elif st.session_state.step == 3:
-    st.subheader("Trin 3: Definer din investeringsprofil")
+    st.subheader("Definer din investeringsprofil")
     
     col_n1, col_n2 = st.columns(2)
     with col_n1:
@@ -898,7 +879,7 @@ elif st.session_state.step == 3:
 
 # --- TRIN 4: PORTEFØLJEOPBYGNING ---
 elif st.session_state.step == 4:
-    st.subheader("Trin 4: Indtast dine nuværende aktiver")
+    st.subheader("Indtast dine nuværende aktiver")
     
     is_new_investor = st.checkbox("Jeg er helt ny investor (starter fra bunden med tom portefølje)")
 
@@ -955,13 +936,12 @@ elif st.session_state.step == 4:
                         cat, sub_sec = get_category_and_sector_failsafe(resolved_ticker, target_category=st.session_state.targets)
                         display_cat = DB_TO_UI_MAP.get(cat, cat)
                         
-                        st.markdown(f"""
-<div style="background-color: #F8FAFC; border: 1px solid #C5A880; padding: 15px; border-radius: 6px; margin-top: 15px; margin-bottom: 15px; color: #1E293B !important;">
-    <span style="color: #0F172A !important; font-weight: bold; font-size: 16px;">🔍 Bekræftet match:</span> {comp_name} ({resolved_ticker})<br>
-    <span style="color: #334155 !important; font-weight: bold;">Aktivklasse:</span> {display_cat} | 
-    <span style="color: #334155 !important; font-weight: bold;">Sektor:</span> {sub_sec}
+                        render_html(f"""
+<div style="background-color: #F8FAFC; border: 1px solid #C5A880; padding: 15px; border-radius: 6px; margin-top: 15px; margin-bottom: 15px;">
+    <strong>🔍 Bekræftet match:</strong> {comp_name} ({resolved_ticker})<br>
+    <strong>Aktivklasse:</strong> {display_cat} | <strong>Sektor:</strong> {sub_sec}
 </div>
-""", unsafe_allow_html=True)
+""")
                         
                         col_shares, col_add = st.columns([1, 1])
                         with col_shares:
@@ -1032,7 +1012,7 @@ elif st.session_state.step == 4:
 
 # --- TRIN 5: INSTANT BRIEFING & RUN ---
 elif st.session_state.step == 5:
-    st.subheader("Trin 5: Watchlist & Aktiver dit LLM Council")
+    st.subheader("Watchlist & Aktiver dit LLM Council")
     
     watchlist_input = st.text_input("Monitorer selskaber i Watchlist (kommasepareret):", "TRMB, SAP, SPSK, AEM, NEM")
     watchlist_list = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
@@ -1236,19 +1216,19 @@ async def process_instant_briefing(receiver_email, holdings_list, watchlist, tar
 
 
 # =====================================================================
-#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN (RETTET MOD INDRYKNING)
+#  DYNAMISK LEGAL DISCLAIMER & ZOYA-LINK I BUNDEN (BIBEHOLDER DIN ORIGINALE STYLING)
 # =====================================================================
-st.markdown("""
-<div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px; color: #7F1D1D !important;">
-    <h4 style="color: #991B1B !important; font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Juridisk ansvarsfraskrivelse</h4>
-    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+render_html("""
+<div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-left: 6px solid #EF4444; padding: 20px; border-radius: 8px; margin-top: 40px; margin-bottom: 30px;">
+    <h4 style="font-family: 'Georgia', serif; margin-top: 0; margin-bottom: 8px;">⚠️ Juridisk ansvarsfraskrivelse</h4>
+    <p style="font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
         LLM Council er et automatiseret, AI-baseret informations- og inspirationsværktøj til personligt brug. Vi tilbyder <strong>ikke</strong> autoriseret eller licenseret finansiel rådgivning, og vi foretager ikke formelle investeringsbeslutninger på dine vegne.
     </p>
-    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
+    <p style="font-size: 14px; margin-bottom: 10px; line-height: 1.5;">
         Finansielle markeder indebærer altid en risiko for tab, og Shariah-fortolkninger kan variere på tværs af forskellige retslærde og madhabs. Du bør <strong>altid</strong> basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sund fornuft.
     </p>
-    <p style="color: #7F1D1D !important; font-size: 14px; margin-bottom: 0; line-height: 1.5;">
-        For en uafhængig og manuel revision af gældsforhold, regnskabstal og Shariah-compliance for individuelle værdipapirer anbefaler vi at anvende det anerkendte værktøj <a href="https://zoya.finance/" target="_blank" style="color: #B91C1C; font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
+    <p style="font-size: 14px; margin-bottom: 0; line-height: 1.5;">
+        For en uafhængig og manuel revision af gældsforhold, regnskabstal og Shariah-compliance for individuelle værdipapirer anbefaler vi at anvende det anerkendte værktøj <a href="https://zoya.finance/" target="_blank" style="font-weight: bold; text-decoration: underline;">Zoya Finance Platform</a>.
     </p>
 </div>
-""", unsafe_allow_html=True)
+""")
