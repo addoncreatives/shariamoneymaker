@@ -49,11 +49,15 @@ st.set_page_config(page_title="LLM Council - Conscious Wealth", page_icon="🗳�
 #  HTML & BILINGUAL TRANSLATION HELPERS
 # =====================================================================
 def render_html(html_str: str):
+    """
+    Renser HTML-strengen for linjeskift og indrykninger, så Streamlits
+    Markdown-parser aldrig forveksler HTML med en rå kode blok.
+    """
     clean_html = "".join([line.strip() for line in html_str.splitlines()])
     st.markdown(clean_html, unsafe_allow_html=True)
 
 
-# Language selector (Danish, Swedish, Norwegian, Finnish, English)
+# Sprogvælger placeret øverst til højre med understøttelse af 5 sprog
 col_title, col_lang = st.columns([2, 1])
 with col_title:
     st.title("🗳️ LLM Council")
@@ -68,6 +72,7 @@ with col_lang:
     )
 
 def _t(da: str, sv: str, no: str, fi: str, en: str) -> str:
+    """Hjælpefunktion til live-oversættelse af UI-tekster på tværs af 5 sprog (Rettet sv/no!)."""
     lang = st.session_state.lang
     if lang == "Dansk": return da
     elif lang == "Svenska": return sv
@@ -129,7 +134,7 @@ TARGET_SUBSECTORS = [
     "Water Infrastructure & Desalination"
 ]
 
-# Det statiske, lynhurtige kartotek (KID-fri og klar til Saxo)
+# Det statiske, lynhurtige kartotek
 STATIC_TICKER_MAP = {
     "NOVO-B.CO": ("Aktier", "Pharmaceuticals & Biotech"),
     "NOVO-B": ("Aktier", "Pharmaceuticals & Biotech"),
@@ -686,7 +691,7 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  ON-DEMAND SEKTOR PROSPEKTOR AGENT (SWOT MODEL INDBYGGET)
+#  ON-DEMAND SEKTOR PROSPEKTOR AGENT (MED RIGTIG RÅDS-DEBAT PER SELSKAB)
 # =====================================================================
 def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_list: list = None) -> str:
     """
@@ -720,7 +725,7 @@ def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_
         "opinions": {{
           "contrarian": "A short (2-3 sentences) critical, highly skeptical, risk-obsessed argument warning of margins, valuations, or competitor moats.",
           "expansionist": "A short (2-3 sentences) highly bullish argument focusing on growth potential, secure cash flow, and market-leading momentum.",
-          "outsider": "A short (2-3 sentences) macro argument linking the company to secular global megatrends and geopolitical dynamics.",
+          "outsider": "A short (2-3 sentences) macro argument linking the company to global megatrends and geopolitical dynamics.",
           "first_principles": "A short (2-3 sentences) analysis of Shariah debt-compliance under strict AAOIFI rules (must stay under 30% debt-to-market-cap ratio).",
           "executor": "A short (2-3 sentences) pragmatic assessment of buy-and-hold tradeability on Saxo and Nordnet.",
           "chairman": "A short (2-3 sentences) final committee recommendation on how to purchase (e.g. recommend dollar-cost averaging over 3 months)."
@@ -995,7 +1000,7 @@ if "last_peeled_etf_ticker" not in st.session_state:
 #  STREAMLIT UI STEPS
 # =====================================================================
 
-# Diskret status-indikator i toppen (Rettet sv/no sprogfejl!)
+# Diskret status-indikator i toppen
 st.caption(_t(
     f"Trin {st.session_state.step} af 5", 
     f"Steg {st.session_state.step} av 5", 
@@ -1120,7 +1125,7 @@ if st.session_state.step == 1:
                 if st.session_state.last_sector_prospects_list:
                     for p in st.session_state.last_sector_prospects_list:
                         st.session_state.prospect_ignore_list.append(p.get("symbol", "").upper())
-                with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Søker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
+                with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Söker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
                     prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list)
                     prospects_parsed = extract_json_array(prospect_json)
                     if prospects_parsed:
@@ -1329,7 +1334,7 @@ if st.session_state.step == 1:
         På grunn av komplekse EU-regler er mange store islamiske fond sperret på de nordiske handelsplattformene. Det etterlater deg i en umulig blindvei: Enten må du inngå kompromiss med dine verdier, la helt være å investere, eller bruke uoverskuelig mye tid på selv å leke aksjeanalytiker og scanne regnskaper.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council er satt i verden for å åpne markedet opp igen.</strong>
+        <strong>LLM Council er satt i verden for å åpne markedet op igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         We scan the global market for you – from broad Islamic index funds (like Invesco Dow Jones) and exciting region-ETFs (such as Saudi Arabia) to strong single stocks. Our tool automatically filters out the locked roadblocks, so you are only presented with Shariah-approved investments you can actually buy directly from your favorite Nordic platform.
@@ -1556,7 +1561,7 @@ elif st.session_state.step == 3:
             f"⚠️ Allocation must equal 100% in total. Current sum: {total_target}%. You need to allocate {difference}%."
         ))
     else:
-        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Allocation is exactly 100%! Du kan nu gå videre.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
+        st.success(_t("✅ Allokeringen er præcis 100%! Du kan nu fortsætte.", "✅ Allokeringen er nøyaktig 100%! Du kan nå fortsette.", "✅ Allokeringen är exakt 100%! Du kan nu gå vidare.", "✅ Hajautus on tasan 100 %! Voit jatkaa eteenpäin.", "✅ Allocation is exactly 100%! You can now proceed."))
         st.session_state.targets = {
             "Aktier": float(target_stocks),
             "Sukuk": float(target_sukuk),
@@ -1596,7 +1601,7 @@ elif st.session_state.step == 4:
     selected_new_sectors = []
     if st.session_state.is_new_investor:
         
-        # 1. OPTION TIL DIREKTE KLONING AF LÅSTE AMERIKANSKE FONDER (NYSKABENDE!)
+        # OPTION TIL DIREKTE KLONING AF LÅSTE AMERIKANSKE FONDER
         st.write("---")
         st.write("🛡️ **" + _t("Genvej: Klon en låst Shariah-ETF med enkeltaktier", "Genväg: Klona en låst Shariah-ETF med enskilda aktier", "Snarvei: Klon en låst Shariah-ETF med enkeltaksjer", "Pika-asetus: Kloonaa lukittu Shariah-ETF yksittäisillä osakkeilla", "Shortcut: Clone a locked Shariah-ETF with individual stocks") + "**")
         st.write(_t(
@@ -1631,7 +1636,7 @@ elif st.session_state.step == 4:
             col_m3, col_m4 = st.columns(2)
             with col_m3:
                 manual_category = st.selectbox(_t("Aktivklasse:", "Tillgångsslag:", "Aktivklasse:", "Omaisuusluokka:", "Asset class:"), ["Cash/Private", "Sukuk", "Commodities"])
-            with col_m4 = st.columns(1):
+            with col_m4:
                 manual_sector = st.selectbox(_t("Delsektor:", "Delsektor:", "Delsektor:", "Sektori:", "Sub-sector:"), TARGET_SUBSECTORS + ["Kontanter", "Private investeringer"])
                 
             if st.button(_t("➕ Tilføj manuelt aktiv", "➕ Lägg till manuell tillgång", "➕ Legg til manuelt aktiv", "➕ Lisää manuaalinen omaisuuserä", "➕ Add manual asset"), use_container_width=True):
@@ -1759,7 +1764,7 @@ elif st.session_state.step == 4:
 
 # --- TRIN 5: WATCHLIST & AKTIVERING (MED FEJLSIKRET INLINE-DOWNLOAD OG VISNING) ---
 elif st.session_state.step == 5:
-    st.subheader(_t("Udsendelse & Hack din portefølje", "Sändning & Aktivera", "Utsendelse & Aktiver", "Lähetys & Aktivoi", "Delivery & Activate your LLM Council"))
+    st.subheader(_t("Udsendelse & Aktiver dit LLM Council", "Sändning & Aktivera ditt LLM Council", "Utsendelse & Aktiver ditt LLM Council", "Lähetys & Aktivoi LLM Council", "Delivery & Activate your LLM Council"))
     
     # Trin 5 Watchlist input - Synkroniseret direkte med din Session State!
     watchlist_str = ", ".join(st.session_state.watchlist_list)
@@ -1893,7 +1898,7 @@ st.warning(_t(
     "Vi erbjuder INTE auktoriserad eller licensierad finansiell rådgivning, och vi fattar inte formella investeringsbeslut för din räkning.\n\n"
     "Finansiella marknader innebär alltid en risk för förlust, och Shariah-tolkningar kan variera mellan olika rättslärda och madhabs. "
     "Du bör alltid basera dina slutgiltiga investeringsval på dina egna bedömningar, personliga övertygelser och sunt förnuft.\n\n"
-    "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderad att använda det erkända verktyget Zoya Finance Platform.",
+    "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderas att använda det erkända verktyget Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
     "LLM Council er et automatisert, AI-basert informasjons- og inspirasjonsverktøy til personlig bruk. "
