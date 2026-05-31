@@ -800,7 +800,7 @@ class CouncilAgent:
 
 
 # =====================================================================
-#  PODCAST AGENT (THE INVESTOR'S JOURNEY — STORYTELLING & MECHATRENDS)
+#  PODCAST AGENT (THE INVESTOR'S JOURNEY — THE 5-ADVISOR SYNERGY)
 # =====================================================================
 class PodcastAgent:
     def __init__(self, api_key: str):
@@ -812,41 +812,51 @@ class PodcastAgent:
     def generate_podcast_audio(self, report_html: str, user_name: str) -> str:
         from podcastfy.client import generate_podcast
         
-        # Din Universal Master Prompt med instruktioner om udelukkende at generere på engelsk
+        # Prompten fordeler nu alle 5 oprindelige rådgiver-tankegange på de 2 stemmer
         user_instructions_content = (
-            f"You are a star producer creating a highly educational, engaging, and professional financial podcast series in English. "
-            f"The target audience is new investors who need guidance to understand market logic, risk management, and long-term megatrends. "
-            f"The show uses our specific investor {user_name}'s live portfolio as an ongoing real-world case study to show how a portfolio matures over time.\n\n"
-            f"CRITICAL CONTENT GUIDELINES (Storytelling > Numbers):\n"
-            f"1. Minimize Number Noise: Avoid listing percentages, exact P/E ratios, or decimals. Use terms like 'a solid overweight', 'a small gap to close', or 'a reasonable price relative to earnings'.\n"
-            f"2. Focus on Megatrends & Macro: Zoom out. Explain which global growth themes and structural shifts (e.g., green transition, commodity scarcity, technological leaps) these companies represent.\n"
-            f"3. Educational Element: Every episode must teach the listener a basic financial concept (e.g., What is operational gearing? Why do commodities behave differently than equities? What does rebalancing mean?).\n\n"
-            f"EPISODE FORMAT / SHOW FLOW (You MUST strictly follow this 5-segment structure):\n"
-            f"- Segment 1: The Global Macro-Pulse (Current events & Megatrends). High-energy opening. Sarah and Mark discuss a major global news topic (e.g., supply chains, raw materials, central banks) and explain the macroeconomic wave it triggers.\n"
-            f"- Segment 2: The Journey Check-In (Where is the investor in their life cycle?). Check-in on the investor's current portfolio phase (e.g., startup phase, rebalancing phase, defensive hedging). Explain why this phase is a classic textbook challenge and teach the theory behind it.\n"
-            f"- Segment 3: The Deep-Dive Pitch (The growth case). Pitch 2-3 Sharia-compliant companies riding this macro wave. Focus on their story, pipeline, and 3-year growth potential instead of financial tables.\n"
-            f"- Segment 4: The LLM Council Arena (The clash of perspectives). The hosts bring in our 5 resident advisors for a heated debate about the pitched companies. The advisors MUST loudly disagree, interrupt each other, and challenge assumptions in English:\n"
-            f"  * Contrarian: Demolishes the hype, warns against buying at the top, points out major risks.\n"
-            f"  * Expansionist: Thrilled about growth, pipeline potential, long-term upside.\n"
-            f"  * Outsider: Challenges the logic, suggests alternative ways to capture the trend.\n"
-            f"  * First-Principles: Anchors the discussion in Shariah-debt rules and overall portfolio balance.\n"
-            f"  * Executor: Evaluates if these are practical/safe to trade on Saxo Bank.\n"
-            f"- Segment 5: The Masterclass Verdict (Today's lesson & Action plan). Sarah and Mark wrap up the debate, summarize the Chairman's final advisory recommendation as an 'Investor Masterclass' lesson, and end with an actionable, step-by-step next step for {user_name}'s Saxo Investor account."
+            f"You are a star producer creating a professional financial podcast series in English called 'The Investor's Journey'.\n\n"
+            f"THE 5-ADVISOR SYNERGY STRUCTURE (Representing all 5 mindsets across 2 voices):\n"
+            f"To deliver maximum perspective without cluttering the audio, the 5 advisory mindsets are mapped elegantly:\n"
+            f"1. Sara (Host / Person 1) embodies the 'Outsider' mindset. She connects global macro trends, geopolitics, and indirect exposures (like commodity royalty models) to the portfolio.\n"
+            f"2. Marcus (Chairman / Person 2) embodies the 'Executor' mindset. He focuses entirely on practical trading on Saxo Bank, liquidity, tradeability, and executing order strategies like Dollar-Cost Averaging.\n"
+            f"3. David (Contrarian) is cited by Sara as the 'Chief Strategist at a global short-fund'. He is the pure stock-specific skeptic warning of valuations and bubbles.\n"
+            f"4. Michael (Expansionist) is cited by Sara as the 'CIO of a Silicon Valley growth fund'. He focuses on pure growth momentum, pipeline potential, and upside.\n"
+            f"5. Elena (First-Principles) is cited by Sara as the 'Head of Macro Research at a Swiss investment bank'. She is the strict mathematical guardian of Shariah compliance, debt limits, and asset class balancing.\n\n"
+            f"EPISODE FORMAT & TIMING FLOW (Must be strictly followed):\n"
+            f"1. [0 - 2 mins] THE GLOBAL PULSE:\n"
+            f"   - Sara (Person 1) opens the show with high energy. She delivers an update on major global macroeconomic news "
+            f"     (e.g., supply chains, raw materials, central banks) or major corporate earnings, acting as the 'Outsider' to highlight big-picture shifts.\n"
+            f"2. [2 - 4 mins] THE COUNCIL ARENA & PORTFOLIO CONNECTION:\n"
+            f"   - Sara (Person 1) connects these macro shifts to our investor {user_name}'s live portfolio. She identifies current asset class gaps.\n"
+            f"   - She introduces 2-3 Shariah-compliant stock candidates from the report.\n"
+            f"   - To evaluate these assets, Sara acts as the moderator, quoting and contrasting the views of our guest experts:\n"
+            f"     * David (Contrarian) warning about specific risks/valuations.\n"
+            f"     * Michael (Expansionist) championing the pipeline and long-term upside.\n"
+            f"     * Elena (First-Principles) analyzing the debt-compliance limits and how it fits the asset balance.\n"
+            f"3. [4 - 6 mins] THE VERDICT & EXECUTION (Marcus joins):\n"
+            f"   - Sara (Person 1) brings Marcus (Person 2), the Investment Committee Chairman, into the conversation.\n"
+            f"   - Marcus (Person 2) steps in with the 'Executor' mindset, assessing how {user_name} can practically implement this on Saxo Bank (e.g., tradeability constraints, suggest building the position slowly over the next 3 months).\n"
+            f"   - Together, they summarize the final verdict as an 'Investor Masterclass' lesson and close the show with a warm, encouraging outro: "
+            f"     'Remember, Rome wasn't built in a day, and neither is a solid portfolio. See you in the next episode of the journey!'\n\n"
+            f"CRITICAL RULES:\n"
+            f"- Output language must be strictly English.\n"
+            f"- Keep 'number noise' to an absolute minimum (use qualitative terms like 'a small gap', 'reasonable price', 'solid growth' instead of lists of raw decimals or P/E percentages).\n"
+            f"- Generate a natural, fluent conversational script optimized for Text-to-Speech playback."
         )
 
         custom_config = {
-            "word_count": 1200,
-            "conversation_style": ["educational", "highly engaging", "fast-paced", "storytelling", "dramatic debate"],
-            "roles_person1": "Sarah, the curious financial journalist",
-            "roles_person2": "Mark, the hardcore market analyst",
+            "word_count": 1100,
+            "conversation_style": ["educational", "professional", "highly engaging", "storytelling", "structured dialogue"],
+            "roles_person1": "Sara, the sharp financial journalist and solo host",
+            "roles_person2": "Marcus, the wise Investment Committee Chairman",
             "podcast_name": "The Investor's Journey",
             "podcast_tagline": "Your money, your journey, your Shariah-compliant future",
-            "output_language": "English",  # Ændret til engelsk
-            "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections", "cross-talk", "interruption"],
+            "output_language": "English",
+            "engagement_techniques": ["rhetorical questions", "analogies", "humor", "interjections"],
             "user_instructions": user_instructions_content
         }
         
-        print("Genererer ægte multi-stemme podcast via Podcastfy og gratis Edge TTS på engelsk...")
+        print("Genererer struktureret podcast (Sara & Marcus) med fuld 5-mands synergi på engelsk...")
         audio_path = generate_podcast(
             text=report_html,
             tts_model="edge",
