@@ -56,7 +56,10 @@ def render_html(html_str: str):
 # Language selector (Danish, Swedish, Norwegian, Finnish, English)
 col_title, col_lang = st.columns([2, 1])
 with col_title:
-    st.title("⚖️ Mizan Finance")
+    if st.button("⚖️ Mizan Finance", key="mizan_home_logo_btn", help="Gå til overblik"):
+        st.session_state.step = 1
+        st.session_state.active_tab = "Home"
+        st.rerun()
 with col_lang:
     if "lang" not in st.session_state:
         st.session_state.lang = "Dansk"
@@ -167,8 +170,8 @@ def load_global_db_from_github():
             merged_db = STATIC_TICKER_MAP.copy()
             merged_db.update(loaded_db)
             return merged_db
-    except Exception as e:
-        print(f"Warning: Could not fetch failsafe_db.json from GitHub: {str(e)}")
+    except Exception:
+        pass
     return STATIC_TICKER_MAP
 
 failsafe_db = load_global_db_from_github()
@@ -568,7 +571,7 @@ class ScreenerComplianceAgent:
         dynamic_subsector = industry if (industry and industry != "Other") else sector
         return "Aktier", dynamic_subsector
 
-    def screen_ticker(self, symbol: str) -> dict:
+    def screen_ticker((self, symbol: str) -> dict:
         try:
             if "CASH_" in symbol or "PVT_" in symbol:
                 return {
@@ -688,7 +691,7 @@ class CouncilAgent:
 # =====================================================================
 #  ON-DEMAND SEKTOR PROSPEKTOR AGENT (MED RIGTIG RÅDS-DEBAT PER SELSKAB)
 # =====================================================================
-def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_list: list = None) -> str:
+def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_list: list = None, lang: str = "Dansk") -> str:
     """
     Genererer 3 Shariah-compliant selskaber inden for den valgte delsektor 
     via Gemini og returnerer dem som en rå, struktureret JSON-streng med meninger fra rådet.
@@ -706,24 +709,25 @@ def generate_sector_prospects(api_key: str, sector: str, user_name: str, ignore_
     YOUR TASK:
     1. Identify 3 promising, Shariah-compliant (based on standard AAOIFI interest-debt criteria) global companies in the '{sector}' sector.
     2. Format the response strictly as a raw JSON array of 3 objects. Do NOT use markdown code blocks like "```json". Just output the raw JSON.
+    3. IMPORTANT: All descriptions, arguments, and recommendations MUST be written entirely in {lang}.
     
     JSON Schema:
     [
       {{
         "symbol": "TICKER",
         "name": "Company Name",
-        "thesis": "A short, highly engaging, storytelling-focused investment case (maximum 2 sentences) in English. Focus on future growth pipeline, not financial numbers.",
+        "thesis": "A short, highly engaging, storytelling-focused investment case (maximum 2 sentences) in {lang}. Focus on future growth pipeline, not financial numbers.",
         "sa_link": "https://seekingalpha.com/symbol/TICKER",
         "yf_link": "https://finance.yahoo.com/quote/TICKER",
         "ir_link": "https://www.google.com/search?q=TICKER+investor+relations",
         "kid_status": "stock",
         "opinions": {{
-          "contrarian": "A short (2-3 sentences) critical, highly skeptical, risk-obsessed argument warning of margins, valuations, or competitor moats.",
-          "expansionist": "A short (2-3 sentences) highly bullish argument focusing on growth potential, secure cash flow, and market-leading momentum.",
-          "outsider": "A short (2-3 sentences) macro argument linking the company to global megatrends and geopolitical dynamics.",
-          "first_principles": "A short (2-3 sentences) analysis of Shariah debt-compliance under strict AAOIFI rules (must stay under 30% debt-to-market-cap ratio).",
-          "executor": "A short (2-3 sentences) pragmatic assessment of buy-and-hold tradeability on Saxo and Nordnet.",
-          "chairman": "A short (2-3 sentences) final committee recommendation on how to purchase (e.g. recommend dollar-cost averaging over 3 months)."
+          "contrarian": "A short (2-3 sentences) critical, highly skeptical, risk-obsessed argument warning of margins, valuations, or competitor moats in {lang}.",
+          "expansionist": "A short (2-3 sentences) highly bullish argument focusing on growth potential, secure cash flow, and market-leading momentum in {lang}.",
+          "outsider": "A short (2-3 sentences) macro argument linking the company to global megatrends and geopolitical dynamics in {lang}.",
+          "first_principles": "A short (2-3 sentences) analysis of Shariah debt-compliance under strict AAOIFI rules (must stay under 30% debt-to-market-cap ratio) in {lang}.",
+          "executor": "A short (2-3 sentences) pragmatic assessment of buy-and-hold tradeability on Saxo and Nordnet in {lang}.",
+          "chairman": "A short (2-3 sentences) final committee recommendation on how to purchase (e.g. recommend dollar-cost averaging over 3 months) in {lang}."
         }}
       }}
     ]
@@ -901,6 +905,49 @@ class DeliveryAgent:
 
 
 # =====================================================================
+#  DYNAMISK ON-DEMAND "WHAT'S MY NEXT STEP" BEREGNER TIL BRUGEREN
+# =====================================================================
+def generate_next_step_swot(api_key: str, holdings: list, watchlist: list, targets: dict, user_name: str, lang: str = "Dansk") -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    holdings_json = json.dumps(holdings, indent=2, ensure_ascii=False)
+    watchlist_json = json.dumps(watchlist, indent=2, ensure_ascii=False)
+    targets_json = json.dumps(targets, indent=2, ensure_ascii=False)
+    
+    prompt = f"""
+    You are the elite investment committee chairman at Mizan Finance. 
+    Analyze our VIP client {user_name}'s complete investment profile on-demand:
+    - Active holdings: {holdings_json}
+    - Watchlist: {watchlist_json}
+    - Target weights: {targets_json}
+    
+    YOUR TASK:
+    Perform a comprehensive SWOT analysis and action plan based on their balance sheets and compliance gaps.
+    All outputs must be written entirely in {lang}. Do NOT use raw financial tables.
+    Format your response strictly as a raw JSON object containing these 5 fields (do NOT use markdown "```json" blocks):
+    
+    {{
+      "strengths": "Detailed analysis (3-4 sentences) of their current strengths, core moats, and good allocations in {lang}.",
+      "weaknesses": "Detailed analysis (3-4 sentences) of their asset deficits, high debt-risks, or missing sectors in {lang}.",
+      "opportunities": "Detailed analysis (3-4 sentences) of major global macro megatrends they can capture based on their watchlist in {lang}.",
+      "threats": "Detailed analysis (3-4 sentences) of regulatory blocks, interest rate risks, or liquidity constraints in {lang}.",
+      "verdict": "Detailed, step-by-step masterclass action plan (3-4 sentences) for their Saxo account over the next 7 days in {lang}."
+    }}
+    """
+    headers = {'Content-Type': 'application/json'}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response.raise_for_status()
+        data = response.json()
+        if 'candidates' in data and len(data['candidates']) > 0:
+            return data['candidates'][0]['content']['parts'][0]['text']
+    except Exception as e:
+        print(f"Fejl under Next Step SWOT: {str(e)}")
+    return "{}"
+
+
+# =====================================================================
 #  DATABASE INTEGRATION (GOOGLE WEB APP)
 # =====================================================================
 def load_user_portfolio_from_db(email: str, password: str) -> dict:
@@ -933,210 +980,424 @@ def save_user_portfolio_to_db(email: str, password: str, holdings: list, targets
 
 
 # =====================================================================
-#  SESSION STATE INITIALIZATION
+#  FUNKTION TIL AT SKABE LIVE-RAPPORT OG PODCAST AUTOMATISK PÅ STREAMLIT
 # =====================================================================
-if "step" not in st.session_state:
-    st.session_state.step = 1
-if "investor_holdings" not in st.session_state:
-    st.session_state.investor_holdings = []
-if "targets" not in st.session_state:
-    st.session_state.targets = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
-if "horizon" not in st.session_state:
-    st.session_state.horizon = "7-15 years"
-if "user_name" not in st.session_state:
-    st.session_state.user_name = "Investor"
-if "frequency" not in st.session_state:
-    st.session_state.frequency = "Weekly"
-if "user_email" not in st.session_state:
-    st.session_state.user_email = ""
-if "user_password" not in st.session_state:
-    st.session_state.user_password = ""
-if "is_logged_in" not in st.session_state:
-    st.session_state.is_logged_in = False
-if "is_new_investor" not in st.session_state:
-    st.session_state.is_new_investor = False
-if "watchlist_list" not in st.session_state:
-    st.session_state.watchlist_list = ["TRMB", "SAP", "SPSK", "AEM", "NEM"]
+async def process_instant_briefing(receiver_email, holdings_list, watchlist, target_allocations, user_name, horizon, is_new, new_sectors):
+    if is_new:
+        portfolio_distribution = {"Aktier": 25.0, "Sukuk": 25.0, "Råvarer": 25.0, "Kontanter/Private": 25.0}
+        sector_distribution = {sec: 33.3 for sec in new_sectors}
+        holdings_list = []
+        focus_category = "Aktier"
+        deficit = 25.0
+    else:
+        total_mv = 0.0
+        for item in holdings_list:
+            symbol = item["Ticker"]
+            if "PVT_" in symbol or "CASH_" in symbol:
+                total_mv += float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item["Kurs"] = price
+                    total_mv += (price * float(item["Shares"]))
+                except Exception:
+                    total_mv += 1000.0
 
-# Slidervariabler
-if "slider_stocks" not in st.session_state:
-    st.session_state.slider_stocks = int(st.session_state.targets.get("Aktier", 25.0))
-if "slider_sukuk" not in st.session_state:
-    st.session_state.slider_sukuk = int(st.session_state.targets.get("Sukuk", 25.0))
-if "slider_commodities" not in st.session_state:
-    st.session_state.slider_commodities = int(st.session_state.targets.get("Råvarer", 25.0))
-if "slider_cash" not in st.session_state:
-    st.session_state.slider_cash = int(st.session_state.targets.get("Kontanter/Private", 25.0))
-
-# Failsafe lagring af resultater
-if "generated_report" not in st.session_state:
-    st.session_state.generated_report = None
-if "generated_audio_bytes" not in st.session_state:
-    st.session_state.generated_audio_bytes = None
-
-# Sektor research
-if "last_sector_prospects_list" not in st.session_state:
-    st.session_state.last_sector_prospects_list = []
-if "last_research_sector_name" not in st.session_state:
-    st.session_state.last_research_sector_name = None
-if "prospect_ignore_list" not in st.session_state:
-    st.session_state.prospect_ignore_list = []
-
-# Månedlig opsparing til passiv rebalancering
-if "monthly_deposit" not in st.session_state:
-    st.session_state.monthly_deposit = 2000.0
-
-# ETF Purifier resultater
-if "peeled_etf_list" not in st.session_state:
-    st.session_state.peeled_etf_list = []
-if "last_peeled_etf_ticker" not in st.session_state:
-    st.session_state.last_peeled_etf_ticker = None
-
-
-# =====================================================================
-#  STREAMLIT UI STEPS
-# =====================================================================
-
-# Diskret status-indikator i toppen
-st.caption(_t(
-    f"Trin {st.session_state.step} af 5", 
-    f"Steg {st.session_state.step} av 5", 
-    f"Trinn {st.session_state.step} av 5", 
-    f"Vaihe {st.session_state.step} / 5", 
-    f"Step {st.session_state.step} of 5"
-))
-
-
-# --- TRIN 1: VELKOMST & KORT KONTEKST ---
-if st.session_state.step == 1:
-    if st.session_state.is_logged_in:
-        # PERSONLIGT DASHBOARD FOR EKSISTERENDE BRUGERE
-        st.subheader(_t(
-            f"Velkommen tilbage, {st.session_state.user_name}!", 
-            f"Välkommen tillbaka, {st.session_state.user_name}!", 
-            f"Velkommen tilbake, {st.session_state.user_name}!", 
-            f"Tervetuloa takaisin, {st.session_state.user_name}!", 
-            f"Welcome back, {st.session_state.user_name}!"
-        ))
+        portfolio_distribution = {"Aktier": 0.0, "Sukuk": 0.0, "Råvarer": 0.0, "Kontanter/Private": 0.0}
+        sector_distribution = {}
         
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            st.metric(_t("Antal aktive positioner", "Antal aktiva positioner", "Antall aktive posisjoner", "Aktiiviset salkun osat", "Active Holdings"), len(st.session_state.investor_holdings))
-        with col_d2:
-            st.metric(_t("Briefing-frekvens", "Briefing-frekvens", "Briefing-frekvens", "Briefing-aikataulu", "Briefing Frequency"), st.session_state.frequency)
+        for item in holdings_list:
+            category = item["Category"]
+            subsector = item["Sector"]
+            symbol = item["Ticker"]
+            
+            if "PVT_" in symbol or "CASH_" in symbol:
+                item_mv = float(item.get("manual_value", 1000))
+            else:
+                try:
+                    t = yf.Ticker(symbol)
+                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", 1.0))
+                    item_mv = (price * float(item["Shares"]))
+                except Exception:
+                    item_mv = 1000.0
+                    
+            weight_chunk = (item_mv / total_mv * 100.0) if total_mv > 0 else 20.0
+            
+            if category in portfolio_distribution:
+                portfolio_distribution[category] += weight_chunk
+            if subsector not in sector_distribution:
+                sector_distribution[subsector] = 0.0
+                
+            sector_distribution[subsector] += weight_chunk
 
-        # PASSIV CASH-FLOW REBALANCERING DIREKTE PÅ DASHBOARDET
-        if st.session_state.investor_holdings and st.session_state.monthly_deposit > 0:
-            st.write("---")
-            st.subheader("💰 " + _t("Dit månedlige rebalancerings-budget", "Din månatliga ombalanseringsbudget", "Ditt månedlige rebalanceringsbudsjett", "Kuukausittainen tasapainotusbudjettisi", "Your Monthly Rebalancing Budget"))
-            st.write(_t(
-                f"Baseret på din planlagte månedlige opsparing på **{st.session_state.monthly_deposit:,.2f} DKK**, anbefaler rådet, at du fordeler dine *nye* indskud således for at lukke allokeringshullerne passivt helt uden salgskurtager:",
-                f"Baserat på din månatliga sparning på **{st.session_state.monthly_deposit:,.2f} DKK** rekommenderar rådet att du fördelar dina nya insättningar så här för att stänga gappen passivt utan säljavgifter:",
-                f"Basert på din månedlige sparing på **{st.session_state.monthly_deposit:,.2f} DKK** anbefaler rådet at du fordeler dine nye innskudd slik for å lukke hullene passivt uten salgskurtasjer:",
-                f"Kuukausittaisen **{st.session_state.monthly_deposit:,.2f} DKK** säästösi perusteella neuvosto suosittelee, että jaat uudet talletuksesi seuraavasti tasapainottaaksesi salkkusi passiivisesti ilman myyntikuluja:",
-                f"Based on your planned monthly deposit of **{st.session_state.monthly_deposit:,.2f} DKK**, the Council recommends distributing your new capital as follows to passively close the gaps without paying selling fees:"
+        pm = PortfolioManagerAgent(portfolio_distribution, target_allocations)
+        focus_category, deficit = pm.identify_underweighted_focus()
+        
+    print(f"SaaS Fokus: {focus_category} (Gab: {deficit:.2f}%)")
+    
+    growth_pool = GLOBAL_COMPLIANT_GROWTH_POOL.get(focus_category, [])
+    combined_candidates = list(set(watchlist + growth_pool))
+    
+    screener = ScreenerComplianceAgent(combined_candidates, target_category=focus_category)
+    approved_stocks = screener.run_screening(focus_category)
+    target_candidates = approved_stocks[:10]
+    
+    if not target_candidates:
+        return False, "Ingen selskaber bestod screening i denne kategori i dag."
+
+    detailed_candidates_data = []
+    for stock in target_candidates:
+        symbol = stock["symbol"]
+        try:
+            t = yf.Ticker(symbol)
+            info = t.info
+            rev_growth = info.get("revenueGrowth", "N/A")
+            op_margins = info.get("operatingMargins", "N/A")
+            free_cashflow = info.get("freeCashflow", "N/A")
+            
+            detailed_candidates_data.append({
+                "symbol": symbol,
+                "name": stock["name"],
+                "pe_ratio": stock["pe_ratio"],
+                "debt_ratio": stock["debt_ratio"],
+                "sector": stock["sector"],
+                "industry": stock["industry"],
+                "is_etf": stock.get("is_etf", False),
+                "revenue_growth": f"{rev_growth * 100:.2f}%" if isinstance(rev_growth, (int, float)) else "N/A",
+                "operating_margins": f"{op_margins * 100:.2f}%" if isinstance(op_margins, (int, float)) else "N/A",
+                "free_cash_flow": f"{free_cashflow / 1e6:.2f}M" if isinstance(free_cashflow, (int, float)) else "N/A",
+                "current_price": info.get("currentPrice", info.get("regularMarketPrice", "N/A")),
+                "currency": info.get("currency", "N/A")
+            })
+        except Exception:
+            detailed_candidates_data.append(stock)
+
+    current_weights_str = json.dumps(portfolio_distribution, indent=2, ensure_ascii=False)
+    current_holdings_str = json.dumps(holdings_list, indent=2, ensure_ascii=False)
+    sector_distribution_str = json.dumps(sector_distribution, indent=2, ensure_ascii=False)
+    
+    council_agent = CouncilAgent(GEMINI_API_KEY)
+    report_html = council_agent.run_proactive_analysis(
+        candidates_data=detailed_candidates_data,
+        category=focus_category,
+        deficit=deficit,
+        current_portfolio_str=current_weights_str,
+        current_holdings_str=current_holdings_str,
+        sector_distribution_str=sector_distribution_str,
+        user_name=user_name,
+        horizon=horizon
+    )
+
+    excel_raw_bytes = generate_excel_template_bytes(holdings_list, watchlist, portfolio_distribution, sector_distribution)
+
+    output_mp3 = "llm_council_podcast.mp3"
+    podcast_compiled = False
+    
+    # Opret en ren tekstbeskrivelse til podcast-værterne i stedet for tung e-mail HTML
+    clean_data_text = (
+        f"VIP Client: {user_name}\n"
+        f"Portfolio allocations (Actual vs Target):\n{current_weights_str}\n\n"
+        f"Dynamic sectors:\n{sector_distribution_str}\n\n"
+        f"Current holdings:\n{current_holdings_str}\n\n"
+        f"Target focus category tonight: {focus_category} (deficit: {deficit:.2f}%)\n\n"
+        f"Screened compliant stocks:\n"
+    )
+    for s in detailed_candidates_data:
+        clean_data_text += f"- {s.get('name')} ({s.get('symbol')}): Sector: {s.get('sector')}, Industry: {s.get('industry')}. Price: {s.get('current_price')} {s.get('currency')}. Revenue Growth: {s.get('revenue_growth')}, Operating Margin: {s.get('operating_margins')}, FCF: {s.get('free_cash_flow')}. Debt Ratio: {s.get('debt_ratio')}.\n"
+
+    podcast_agent = PodcastAgent(GEMINI_API_KEY)
+    generated_file = podcast_agent.generate_podcast_audio(clean_data_text, user_name)
+    
+    # Læser og gemmer resultaterne live i Session State for direkte download/afspilning på hjemmesiden (Fejlsikring!)
+    st.session_state.generated_report = report_html
+    if generated_file and os.path.exists(generated_file):
+        with open(generated_file, "rb") as f:
+            st.session_state.generated_audio_bytes = f.read()
+        import shutil
+        shutil.copyfile(generated_file, output_mp3)
+        podcast_compiled = True
+
+    attachments_list = []
+    if podcast_compiled:
+        attachments_list.append({"path": output_mp3, "name": f"{user_name}_LLM_Council_Podcast.mp3"})
+    attachments_list.append({"data": excel_raw_bytes, "name": f"{user_name}_Live_Portfolio_Template.xlsx"})
+
+    os.environ["EMAIL_RECEIVER"] = receiver_email
+    subject = f"[Mizan Finance] Your Personal Strategic Briefing - Focus on {DISPLAY_CATEGORIES.get(focus_category, focus_category)}"
+    
+    DeliveryAgent.send_email(
+        subject=subject,
+        html_content=report_html,
+        attachments=attachments_list
+    )
+    return True, "Briefing, lyd-podcast og dit Excel-ark er nu klar på skærmen samt sendt til din e-mailadresse."
+
+
+# =====================================================================
+#  TOSPROGET TOP NAV-BAR (MENU)
+# =====================================================================
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Home"
+
+# Tilpasningsbar header-styling, der skifter automatisk efter mørk/lys tilstand
+header_css = """
+<div style="background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; margin-bottom: 25px; text-align: center;">
+    <span style="font-size: 20px; font-weight: bold; font-family: sans-serif;">⚖️ Mizan Finance</span>
+</div>
+"""
+render_html(header_css)
+
+col_menu_home, col_menu_meth = st.columns(2)
+with col_menu_home:
+    if st.button("⚖️ " + _t("Overblik & Dashboard", "Översikt & Dashboard", "Overblikk & Dashboard", "Yleiskatsaus & Työpöytä", "Overview & Dashboard"), use_container_width=True):
+        st.session_state.active_tab = "Home"
+        st.rerun()
+with col_menu_meth:
+    if st.button("🛡️ " + _t("Shariah Screening Metodik", "Shariah Screening Metodik", "Shariah Screening Metodikk", "Shariah-seulontamenetelmä", "Shariah Screening Methodology"), use_container_width=True):
+        st.session_state.active_tab = "Methodology"
+        st.rerun()
+
+st.write(" ")
+
+
+# --- FANEN: SHARIAH SCREENING METHODOLOGY (MUSAFFA / AAOIFI REGLER) ---
+if st.session_state.active_tab == "Methodology":
+    render_html(_t("""
+<div style="border: 1px solid var(--border-color); padding: 25px; border-radius: 8px; margin-bottom: 25px; background-color: var(--background-color); color: var(--text-color);">
+    <h2 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ Musaffa & AAOIFI Screening-metodik</h2>
+    <p style="margin-bottom: 20px;">
+        Mizan Finance overholder de officielle standarder sat af <strong>AAOIFI</strong> (Accounting and Auditing Organization for Islamic Financial Institutions). 
+        For at en aktie eller en ETF kan klassificeres som Shariah-kompatibel (Halal), skal den bestå to strenge niveauer af screening:
+    </p>
+    
+    <h3 style="margin-top: 25px;">1. Forretningsmæssig Screening (Prohibited Activities)</h3>
+    <p style="margin-bottom: 15px;">Selskabet må absolut ikke have væsentlige indtægter (over 5% af den samlede omsætning) fra følgende uetiske eller haram erhvervsaktiviteter:</p>
+    <ul>
+        <li><strong>Rente-baseret finans:</strong> Konventionelle banker, realkredit og forsikringsselskaber.</li>
+        <li><strong>Ikke-halal fødevarer:</strong> Produktion eller salg af svinekød og ikke-halal slagtede produkter.</li>
+        <li><strong>Alkohol & Tobak:</strong> Produktion, distribution eller salg.</li>
+        <li><strong>Våben & Forsvar:</strong> Produktion af krigsmateriel og militært udstyr.</li>
+        <li><strong>Voksenunderholdning:</strong> Eksplicit indhold og pornografi.</li>
+        <li><strong>Gambling:</strong> Kasinoer, lotterier og væddemål.</li>
+        <li><strong>Marijuana & Human kloning:</strong> Rekreativ cannabis og kloningsteknologier.</li>
+    </ul>
+
+    <h3 style="margin-top: 25px;">2. Finansiel Screening (De 3 AAOIFI-tærskler)</h3>
+    <p style="margin-bottom: 10px;">Hvis selskabets kerneforretning er godkendt, skal dets finansielle struktur bestå tre matematiske tjek (udregnet mod et 36-måneders glidende gennemsnit af markedsværdien):</p>
+    <ol>
+        <li style="margin-bottom: 8px;"><strong>Ikke-tilladt indkomst (Impermissible Income):</strong> Eventuelle utilsigtede haram-indtægter (f.eks. tilfældige renteindtægter) må maksimalt udgøre <strong>under 5 %</strong> af selskabets samlede omsætning. Modtaget udbytte fra denne andel skal "renses" og doneres to velgørenhed.</li>
+        <li style="margin-bottom: 8px;"><strong>Rentebærende aktiver (Interest-Bearing Assets):</strong> Selskabets samlede rentebærende aktiver (kontanter og indskud i konventionelle banker) må maksimalt udgøre <strong>under 30 %</strong> af markedsværdien.</li>
+        <li style="margin-bottom: 8px;"><strong>Rentebærende gæld (Interest-Bearing Debt):</strong> Selskabets samlede forrentede gæld (konventionelle lån og obligationer) må maksimalt udgøre <strong>under 30 %</strong> af markedsværdien. Hvis gælden overstiger denne grænse, deklassificeres selskabet øjeblikkeligt til non-compliant.</li>
+    </ol>
+    
+    <p style="margin-top: 25px; margin-bottom: 0;">
+        Vil du vide mere om de officielle standarder? 
+        Besøg det officielle <a href="https://aaoifi.com/?lang=en" target="_blank" style="color: #C5A880; font-weight: bold; text-decoration: underline;">AAOIFI Website</a>.
+    </p>
+</div>
+""", """
+<div style="border: 1px solid var(--border-color); padding: 25px; border-radius: 8px; margin-bottom: 25px; background-color: var(--background-color); color: var(--text-color);">
+    <h2 style="font-family: 'Georgia', serif; margin-top: 0;">🛡️ Musaffa & AAOIFI Screening Methodology</h2>
+    <p style="margin-bottom: 20px;">
+        Mizan Finance adheres strictly to the global standards set by <strong>AAOIFI</strong> (Accounting and Auditing Organization for Islamic Financial Institutions). 
+        To be classified as Shariah-compliant (Halal), any stock or ETF must pass two levels of screening:
+    </p>
+    
+    <h3 style="margin-top: 25px;">1. Business Activity Screening</h3>
+    <p style="margin-bottom: 15px;">The company must not generate more than 5% of its total revenue from prohibited (haram) business activities, including:</p>
+    <ul>
+        <li><strong>Conventional Finance:</strong> Conventional banking, interest-bearing loans, and insurance.</li>
+        <li><strong>Non-Halal Foods:</strong> Production, processing, or sale of pork and non-halal products.</li>
+        <li><strong>Alcohol & Tobacco:</strong> Manufacturing, distribution, or retail.</li>
+        <li><strong>Weapons & Defense:</strong> Military weapons, ammunition, and defense products.</li>
+        <li><strong>Adult Entertainment:</strong> Explicit media, pornography, and gambling.</li>
+    </ul>
+
+    <h3 style="margin-top: 25px;">2. Financial Ratio Screening (The 3 Core AAOIFI Thresholds)</h3>
+    <p style="margin-bottom: 10px;">The company's financial structure must satisfy three financial ratios (calculated against the trailing 36-month average market capitalization):</p>
+    <ol>
+        <li style="margin-bottom: 8px;"><strong>Impermissible Revenue:</strong> Non-permissible income must be <strong>below 5%</strong> of total revenue. Incidental interest received must be purified by donating that portion of dividends to charity.</li>
+        <li style="margin-bottom: 8px;"><strong>Interest-Bearing Assets:</strong> Conventional cash, bank deposits, and interest-bearing securities must be <strong>below 30%</strong> of the market cap.</li>
+        <li style="margin-bottom: 8px;"><strong>Interest-Bearing Debt:</strong> Total interest-bearing loans and conventional bonds must be <strong>below 30%</strong> of the market cap.</li>
+    </ol>
+    
+    <p style="margin-top: 25px; margin-bottom: 0;">
+        Want to explore the official financial standards? 
+        Visit the official <a href="https://aaoifi.com/?lang=en" target="_blank" style="color: #C5A880; font-weight: bold; text-decoration: underline;">AAOIFI Website</a>.
+    </p>
+</div>
+""", "", "", ""))
+
+
+# --- FANEN: HOME / OVERBLIK & DASHBOARD ---
+elif st.session_state.active_tab == "Home":
+
+    # --- TRIN 1: VELKOMST & KORT KONTEKST ---
+    if st.session_state.step == 1:
+        if st.session_state.is_logged_in:
+            # PERSONLIGT DASHBOARD FOR EKSISTERENDE BRUGERE
+            st.subheader(_t(
+                f"Velkommen tilbage, {st.session_state.user_name}!", 
+                f"Välkommen tillbaka, {st.session_state.user_name}!", 
+                f"Velkommen tilbake, {st.session_state.user_name}!", 
+                f"Tervetuloa takaisin, {st.session_state.user_name}!", 
+                f"Welcome back, {st.session_state.user_name}!"
             ))
             
-            rebal_dist = calculate_passive_rebalancing_distribution(st.session_state.investor_holdings, st.session_state.targets, st.session_state.monthly_deposit)
-            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-            with col_r1:
-                st.metric(_t("Køb Aktier", "Köp Aktier", "Kjøp Aksjer", "Osta Osakkeita", "Buy Equities"), f"{rebal_dist['Aktier']:,.0f} DKK")
-            with col_r2:
-                st.metric(_t("Køb Sukuk", "Köp Sukuk", "Kjøp Sukuk", "Osta Sukuk", "Buy Sukuk"), f"{rebal_dist['Sukuk']:,.0f} DKK")
-            with col_r3:
-                st.metric(_t("Køb Råvarer", "Köp Råvaror", "Kjøp Råvarer", "Osta Raaka-aineita", "Buy Commodities"), f"{rebal_dist['Råvarer']:,.0f} DKK")
-            with col_r4:
-                st.metric(_t("Gem i Kontanter", "Spara i Kontanter", "Spar i Kontanter", "Säästä Käteisenä", "Keep in Cash"), f"{rebal_dist['Kontanter/Private']:,.0f} DKK")
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.metric(_t("Antal aktive positioner", "Antal aktiva positioner", "Antall aktive posisjoner", "Aktiiviset salkun osat", "Active Holdings"), len(st.session_state.investor_holdings))
+            with col_d2:
+                st.metric(_t("Briefing-frekvens", "Briefing-frekvens", "Briefing-frekvens", "Briefing-aikataulu", "Briefing Frequency"), st.session_state.frequency)
 
-        # Hurtig oversigt over beholdninger
-        if st.session_state.investor_holdings:
+            # PASSIV CASH-FLOW REBALANCERING DIREKTE PÅ DASHBOARDET
+            if st.session_state.investor_holdings and st.session_state.monthly_deposit > 0:
+                st.write("---")
+                st.subheader("💰 " + _t("Dit månedlige rebalancerings-budget", "Din månatliga ombalanseringsbudget", "Ditt månedlige rebalanceringsbudsjett", "Kuukausittainen tasapainotusbudjettisi", "Your Monthly Rebalancing Budget"))
+                st.write(_t(
+                    f"Baseret på din planlagte månedlige opsparing på **{st.session_state.monthly_deposit:,.2f} DKK**, anbefaler rådet, at du fordeler dine *nye* indskud således for at lukke allokeringshullerne passivt helt uden salgskurtager:",
+                    f"Baserat på din månatliga sparning på **{st.session_state.monthly_deposit:,.2f} DKK** rekommenderar rådet att du fördelar dina nya insättningar så här för att stänga gappen passivt utan säljavgifter:",
+                    f"Basert på din månedlige sparing på **{st.session_state.monthly_deposit:,.2f} DKK** anbefaler rådet at du fordeler dine nye innskudd slik for å lukke hullene passivt uten salgskurtasjer:",
+                    f"Kuukausittaisen **{st.session_state.monthly_deposit:,.2f} DKK** säästösi perusteella neuvosto suosittelee, että jaat uudet talletuksesi seuraavasti tasapainottaaksesi salkkusi passiivisesti ilman myyntikuluja:",
+                    f"Based on your planned monthly deposit of **{st.session_state.monthly_deposit:,.2f} DKK**, the Council recommends distributing your new capital as follows to passively close the gaps without paying selling fees:"
+                ))
+                
+                rebal_dist = calculate_passive_rebalancing_distribution(st.session_state.investor_holdings, st.session_state.targets, st.session_state.monthly_deposit)
+                col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+                with col_r1:
+                    st.metric(_t("Køb Aktier", "Köp Aktier", "Kjøp Aksjer", "Osta Osakkeita", "Buy Equities"), f"{rebal_dist['Aktier']:,.0f} DKK")
+                with col_r2:
+                    st.metric(_t("Køb Sukuk", "Köp Sukuk", "Kjøp Sukuk", "Osta Sukuk", "Buy Sukuk"), f"{rebal_dist['Sukuk']:,.0f} DKK")
+                with col_r3:
+                    st.metric(_t("Køb Råvarer", "Köp Råvaror", "Kjøp Råvarer", "Osta Raaka-aineita", "Buy Commodities"), f"{rebal_dist['Råvarer']:,.0f} DKK")
+                with col_r4:
+                    st.metric(_t("Gem i Kontanter", "Spara i Kontanter", "Spar i Kontanter", "Säästä Käteisenä", "Keep in Cash"), f"{rebal_dist['Kontanter/Private']:,.0f} DKK")
+
+            # Hurtig oversigt over beholdninger
+            if st.session_state.investor_holdings:
+                st.write("---")
+                st.subheader(_t("Din aktuelle portefølje", "Din nuvarande portfölj", "Din nåværende portefølje", "Nykyinen salkkusi", "Your Current Portfolio"))
+                df_dash = pd.DataFrame(st.session_state.investor_holdings)
+                df_dash['Category_Display'] = df_dash['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
+                st.dataframe(
+                    df_dash,
+                    column_config={
+                        "Company Name": _t("Selskabsnavn", "Bolagsnamn", "Selskapsnavn", "Yrityksen nimi", "Company Name"),
+                        "Ticker": "Ticker",
+                        "Shares": _t("Antal", "Antal", "Antall", "Määrä", "Shares"),
+                        "Category_Display": _t("Kategori", "Kategori", "Kategori", "Kategoria", "Category"),
+                        "Sector": _t("Delsektor", "Delsektor", "Delsektor", "Sektori", "Sub-sector")
+                    },
+                    use_container_width=True
+                )
+
+            # DET NYE DASHBOARD WATCHLIST MODUL (MED REELLE TICKERE)
+            if st.session_state.watchlist_list:
+                st.write("---")
+                st.subheader("📊 " + _t("Din Watchlist", "Din Watchlist", "Din Watchlist", "Tarkkailulistasi", "Your Watchlist"))
+                watchlist_data = []
+                for ticker in st.session_state.watchlist_list:
+                    try:
+                        t = yf.Ticker(ticker)
+                        price = t.info.get("currentPrice", t.info.get("regularMarketPrice", "N/A"))
+                        currency = t.info.get("currency", "")
+                        watchlist_data.append({
+                            "Ticker": ticker, 
+                            "Price": f"{price} {currency}" if price != "N/A" else "N/A"
+                        })
+                    except Exception:
+                        watchlist_data.append({"Ticker": ticker, "Price": "N/A"})
+                st.dataframe(pd.DataFrame(watchlist_data), use_container_width=True)
+            
             st.write("---")
-            st.subheader(_t("Din aktuelle portefølje", "Din nuvarande portfölj", "Din nåværende portefølje", "Nykyinen salkkusi", "Your Current Portfolio"))
-            df_dash = pd.DataFrame(st.session_state.investor_holdings)
-            df_dash['Category_Display'] = df_dash['Category'].apply(lambda x: DB_TO_UI_MAP.get(x, x))
-            st.dataframe(
-                df_dash,
-                column_config={
-                    "Company Name": _t("Selskabsnavn", "Bolagsnamn", "Selskapsnavn", "Yrityksen nimi", "Company Name"),
-                    "Ticker": "Ticker",
-                    "Shares": _t("Antal", "Antal", "Antall", "Määrä", "Shares"),
-                    "Category_Display": _t("Kategori", "Kategori", "Kategori", "Kategoria", "Category"),
-                    "Sector": _t("Delsektor", "Delsektor", "Delsektor", "Sektori", "Sub-sector")
-                },
-                use_container_width=True
-            )
+            # Genvejs-links til redigering eller rapport-kørsel
+            st.subheader(_t("Hurtige handlinger", "Snabbval", "Hurtige handlinger", "Pika-asennot", "Quick Actions"))
+            col_act1, col_act2 = st.columns(2)
+            with col_act1:
+                if st.button("⚙️ " + _t("Rediger portefølje & mål", "Redigera portfölj & mål", "Rediger portefølje & mål", "Muokkaa salkkua & tavoitteita", "Edit Portfolio & Targets"), use_container_width=True, key="home_edit_port_btn"):
+                    st.session_state.step = 3
+                    st.rerun()
+            with col_act2:
+                if st.button("🗳️ " + _t("Generer ny LLM-rapport", "Generera ny LLM-rapport", "Generer ny LLM-rapport", "Luo uusi LLM-raportti", "Generate New Briefing"), use_container_width=True, key="home_run_briefing_btn"):
+                    st.session_state.step = 5
+                    st.rerun()
 
-        # DET NYE DASHBOARD WATCHLIST MODUL (MED REELLE TICKERE)
-        if st.session_state.watchlist_list:
+            # NYT: "WHAT'S MY NEXT STEP" BEREGNING DIREKTE PÅ DASHBOARDET (SWOT ANALYSE!)
             st.write("---")
-            st.subheader("📊 " + _t("Din Watchlist", "Din Watchlist", "Din Watchlist", "Tarkkailulistasi", "Your Watchlist"))
-            watchlist_data = []
-            for ticker in st.session_state.watchlist_list:
-                try:
-                    t = yf.Ticker(ticker)
-                    price = t.info.get("currentPrice", t.info.get("regularMarketPrice", "N/A"))
-                    currency = t.info.get("currency", "")
-                    watchlist_data.append({
-                        "Ticker": ticker, 
-                        "Price": f"{price} {currency}" if price != "N/A" else "N/A"
-                    })
-                except Exception:
-                    watchlist_data.append({"Ticker": ticker, "Price": "N/A"})
-            st.dataframe(pd.DataFrame(watchlist_data), use_container_width=True)
-        
-        st.write("---")
-        # Genvejs-links til redigering eller rapport-kørsel
-        st.subheader(_t("Hurtige handlinger", "Snabbval", "Hurtige handlinger", "Pika-asennot", "Quick Actions"))
-        col_act1, col_act2 = st.columns(2)
-        with col_act1:
-            if st.button("⚙️ " + _t("Rediger portefølje & mål", "Redigera portfölj & mål", "Rediger portefølje & mål", "Muokkaa salkkua & tavoitteita", "Edit Portfolio & Targets"), use_container_width=True, key="home_edit_port_btn"):
-                st.session_state.step = 3
-                st.rerun()
-        with col_act2:
-            if st.button("🗳️ " + _t("Generer ny LLM-rapport", "Generera ny LLM-rapport", "Generer ny LLM-rapport", "Luo uusi LLM-raportti", "Generate New Briefing"), use_container_width=True, key="home_run_briefing_btn"):
-                st.session_state.step = 5
-                st.rerun()
+            st.subheader("🔮 " + _t("Hvad er mit næste skridt?", "Vad är mitt nästa steg?", "Hva er mitt neste skridt?", "Mikä on seuraava askeleeni?", "What's My Next Step?"))
+            st.write(_t(
+                "Tryk på knappen nedenfor for at aktivere dit rådgiverpanel til en live-analyse af din nuværende beholdning og din Watchlist. Rådet vil præsentere en struktureret SWOT-plan direkte på din skærm.",
+                "Klicka på knappen nedan för att aktivera ditt rådgivarpanel för en live-analys av ditt innehav och bevakningslista. Rådet kommer att presentera en strukturerad SWOT-plan direkt på skärmen.",
+                "Klikk på knappen nedenfor for å aktivere rådgiverpanelet for en live-analyse av din portefølje og Watchlist. Rådet vil presentere en strukturert SWOT-plan direkte på skjermen.",
+                "Klikkaa alta käynnistääksesi neuvonantajapaneelin reaaliaikaiseen salkkusi ja tarkkailulistasi analyysiin. Paneeli esittää strukturoidun SWOT-suunnitelman suoraan näytöllesi.",
+                "Click the button below to engage your advisor panel for an instant live audit of your holdings and Watchlist. The advisors will render a structured, on-screen SWOT action plan."
+            ))
+            if st.button("⚖️ " + _t("Kør Next-Step SWOT-analyse", "Kör Next-Step SWOT-analys", "Kjør Next-Step SWOT-analyse", "Luo Next-Step SWOT-analyysi", "Run Next-Step SWOT Audit"), use_container_width=True):
+                with st.spinner(_t("Rådgiverne analyserer din portefølje...", "Analyserar din portfölj...", "Analyserer porteføljen din...", "Analysoidaan salkkuasi...", "The advisors are auditing your allocations...")):
+                    swot_json = generate_next_step_swot(GEMINI_API_KEY, st.session_state.investor_holdings, st.session_state.watchlist_list, st.session_state.targets, st.session_state.user_name, st.session_state.lang)
+                    st.session_state.last_next_step_swot = json.loads(swot_json)
+                    st.rerun()
 
-        # DYNAMISK ON-DEMAND SEKTOR RESEARCH (INTERAKTIVT DIVE-IN MED WATCHLIST TILFØJELSE)
-        st.write("---")
-        st.subheader("🔍 " + _t("Strategisk Rådgiver-Terminal", "Strategisk Rådgivarterminal", "Strategisk Rådgiverterminal", "Strateginen Neuvonantajapääte", "Strategic Advisor Terminal"))
-        st.write(_t(
-            "Vælg en delsektor nedenfor for at lade dine rådgivere foretage en øjeblikkelig prospektering af 3 stærke, compliant vækstcases. Du kan tilføje dem direkte til din Watchlist herunder.",
-            "Välj en delsektor nedan för att låta dina rådgivare göra en omedelbar prospektering av 3 starka, compliant tillväxtcase. Du kan lägga till dem direkt i din Watchlist nedan.",
-            "Velg en delsektor nedenfor for å la dine rådgivere foreta en dypgående prospektering av 3 sterke, compliant vekstcases. Du kan legge dem til i din Watchlist direkte nedenfor.",
-            "Valitse alta osa-sektori, jotta neuvonantajat voivat tehdä välittömän arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta. Voit lisätä ne suoraan tarkkailulistallesi alta.",
-            "Select a sub-sector below to have your advisors perform an on-demand prospecting of 3 strong, compliant growth cases. You can add them directly to your Watchlist below."
-        ))
-        
-        col_sec_sel, col_sec_reload = st.columns([2, 1])
-        with col_sec_sel:
-            selected_research_sector = st.selectbox(
-                _t("Vælg delsektor:", "Välj delsektor:", "Velg delsektor:", "Valitse osa-sektori:", "Select sub-sector to prospect:"),
-                TARGET_SUBSECTORS
-            )
-        with col_sec_reload:
-            st.write(" ")
-            st.write(" ")
-            # Knap til at hente alternative selskaber inden for samme sektor (Ignore-liste aktiveres)
-            # RETTET: Vises nu KUN hvis der allerede har været kørt en søgning!
-            if st.session_state.last_sector_prospects_list:
-                if st.button("🔄 " + _t("Udforsk alternativer", "Utforska alternativ", "Utforsk alternativer", "Etsi vaihtoehtoja", "Explore Alternatives"), use_container_width=True, key="home_explore_alternatives_btn"):
-                    for p in st.session_state.last_sector_prospects_list:
-                        st.session_state.prospect_ignore_list.append(p.get("symbol", "").upper())
-                    with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Søker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
-                        prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list)
-                        prospects_parsed = extract_json_array(prospect_json)
-                        if prospects_parsed:
-                            st.session_state.last_sector_prospects_list = prospects_parsed
-                            st.session_state.last_research_sector_name = selected_research_sector
-                            st.success(_t("Nye prospects klar!", "Nya prospekt redo!", "Nye prospekter klare!", "Uusia kohteita valmiina!", "New prospects ready!"))
-                            time.sleep(1)
-                            st.rerun()
+            if st.session_state.last_next_step_swot:
+                st.write(" ")
+                swot_tabs = st.tabs([
+                    "💪 " + _t("Styrker", "Styrkor", "Styrker", "Vahvuudet", "Strengths"),
+                    "⚠️ " + _t("Svagheder", "Svagheter", "Svakheter", "Heikkoudet", "Weaknesses"),
+                    "🚀 " + _t("Muligheder", "Möjligheter", "Muligheter", "Mahdollisuudet", "Opportunities"),
+                    "🛡️ " + _t("Trusler & Gæld", "Hot & Skulder", "Trusler & Gjeld", "Uhat & Velka", "Threats & Debt"),
+                    "👑 " + _t("Rådets Dom", "Rådets dom", "Rådets dom", "Neuvoston tuomio", "Strategic Verdict")
+                ])
+                with swot_tabs[0]:
+                    st.info(st.session_state.last_next_step_swot.get("strengths", ""))
+                with swot_tabs[1]:
+                    st.error(st.session_state.last_next_step_swot.get("weaknesses", ""))
+                with swot_tabs[2]:
+                    st.warning(st.session_state.last_next_step_swot.get("opportunities", ""))
+                with swot_tabs[3]:
+                    st.markdown(st.session_state.last_next_step_swot.get("threats", ""))
+                with swot_tabs[4]:
+                    st.success(st.session_state.last_next_step_swot.get("verdict", ""))
+
+            # DYNAMISK ON-DEMAND SEKTOR RESEARCH (INTERAKTIVT DIVE-IN MED WATCHLIST TILFØJELSE)
+            st.write("---")
+            st.subheader("🔍 " + _t("Strategisk Rådgiver-Terminal", "Strategisk Rådgivarterminal", "Strategisk Rådgiverterminal", "Strateginen Neuvonantajapääte", "Strategic Advisor Terminal"))
+            st.write(_t(
+                "Vælg en delsektor nedenfor for at lade dine rådgivere foretage en øjeblikkelig prospektering af 3 stærke, compliant vækstcases. Du kan tilføje dem direkte til din Watchlist herunder.",
+                "Välj en delsektor nedan för att låta dina rådgivare göra en omedelbar prospektering av 3 starka, compliant tillväxtcase. Du kan lägga till dem direkt i din Watchlist nedan.",
+                "Velg en delsektor nedenfor for å la dine rådgivere foreta en dypgående prospektering av 3 sterke, compliant vekstcases. Du kan legge dem til i din Watchlist direkte nedenfor.",
+                "Valitse alta osa-sektori, jotta neuvonantajat voivat tehdä välittömän arvion kolmesta vahvasta ja vaatimukset täyttävästä kasvukohteesta. Voit lisätä ne suoraan tarkkailulistallesi alta.",
+                "Select a sub-sector below to have your advisors perform an on-demand prospecting of 3 strong, compliant growth cases. You can add them directly to your Watchlist below."
+            ))
+            
+            col_sec_sel, col_sec_reload = st.columns([2, 1])
+            with col_sec_sel:
+                selected_research_sector = st.selectbox(
+                    _t("Vælg delsektor:", "Välj delsektor:", "Velg delsektor:", "Valitse osa-sektori:", "Select sub-sector to prospect:"),
+                    TARGET_SUBSECTORS
+                )
+            with col_sec_reload:
+                st.write(" ")
+                st.write(" ")
+                # Knap til at hente alternative selskaber inden for samme sektor (Ignore-liste aktiveres)
+                if st.session_state.last_sector_prospects_list:
+                    if st.button("🔄 " + _t("Udforsk alternativer", "Utforska alternativ", "Utforsk alternativer", "Etsi vaihtoehtoja", "Explore Alternatives"), use_container_width=True, key="home_explore_alternatives_btn"):
+                        for p in st.session_state.last_sector_prospects_list:
+                            st.session_state.prospect_ignore_list.append(p.get("symbol", "").upper())
+                        with st.spinner(_t("Søger efter alternative prospects...", "Söker efter alternativa prospekt...", "Søker efter alternative prospekter...", "Etsitään vaihtoehtoisia kohteita...", "Searching for alternatives...")):
+                            prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, st.session_state.prospect_ignore_list, st.session_state.lang)
+                            prospects_parsed = extract_json_array(prospect_json)
+                            if prospects_parsed:
+                                st.session_state.last_sector_prospects_list = prospects_parsed
+                                st.session_state.last_research_sector_name = selected_research_sector
+                                st.success(_t("Nye prospects klar!", "Nya prospekt redo!", "Nye prospekter klare!", "Uusia kohteita valmiina!", "New prospects ready!"))
+                                time.sleep(1)
+                                st.rerun()
 
         if st.button("🚀 " + _t("Engager rådgivere", "Engagera rådgivare", "Engasjer rådgivere", "Käynnistä neuvonantajat", "Engage Advisors"), use_container_width=True, key="home_engage_advisors_btn"):
             st.session_state.prospect_ignore_list = []
             with st.spinner(_t("Rådgiverne analyserer sektoren og danner selskabs-prospekter...", "Rådgivarna analyserar sektorn och genererar prospekt...", "Rådgiverne analyserer sektoren og genererer prospekter...", "Neuvonantajat analysoivat sektoria ja luovat kohteita...", "The advisors are analyzing the sector and compiling investment cases...")):
-                prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, [])
+                prospect_json = generate_sector_prospects(GEMINI_API_KEY, selected_research_sector, st.session_state.user_name, [], st.session_state.lang)
                 prospects_parsed = extract_json_array(prospect_json)
                 if prospects_parsed:
                     st.session_state.last_sector_prospects_list = prospects_parsed
@@ -1191,7 +1452,7 @@ if st.session_state.step == 1:
                             "⚠️ " + _t("Svagheder", "Svagheter", "Svakheter", "Heikkoudet", "Weaknesses"), 
                             "🚀 " + _t("Muligheder", "Möjligheter", "Muligheter", "Mahdollisuudet", "Opportunities"), 
                             "🛡️ " + _t("Trusler & Gæld", "Hot & Skulder", "Trusler & Gjeld", "Uhat & Velka", "Threats & Debt"), 
-                            "🔵 " + _t("Saxo Forhold", "Saxo-villkor", "Saxo-forhold", "Saxo-ehdot", "Saxo Tradeability"), 
+                            "🔵 " + _t("Tilgængelighed", "Tillgänglighet", "Tilgjengelighet", "Saatavuus", "Tradeability"), 
                             "👑 " + _t("Rådets Dom", "Rådets dom", "Rådets dom", "Neuvoston tuomio", "Strategic Verdict")
                         ]
                         prospect_tabs = st.tabs(tab_names)
@@ -1219,6 +1480,17 @@ if st.session_state.step == 1:
             "Since you cannot buy broad US ETFs due to KID restrictions, enter a conventional ETF ticker (e.g., SPY or QQQ) below. Our AI 'peels' the ETF, purges non-compliant stocks, and presents Shariah-approved single stocks you can trade freely."
         ))
         
+        col_peel_t, col_peel_n = st.columns([2, 1])
+        with col_peel_t:
+            peel_ticker = st.text_input(_t("Indtast konventionel ETF-ticker:", "Ange vanlig ETF-ticker:", "Skriv inn vanlig ETF-ticker:", "Syötä perinteinen ETF-ticker:", "Enter conventional ETF ticker (e.g., SPY, QQQ):"), placeholder="e.g., SPY", key="peel_ticker_input_home")
+        with col_peel_n:
+            top_n = st.selectbox(
+                _t("Antal selskaber at analysere:", "Antal bolag att analysera:", "Antall selskaper å analysere:", "Analysoitavien yritysten määrä:", "Top holdings to screen:"),
+                [10, 20, 30, 40, 50],
+                index=1,
+                key="peel_top_n_select_home"
+            )
+        
         # Integreret inspirationsvælger for at undgå at skulle huske rå tickere
         etf_templates = {
             _t("Vælg ETF fra inspirations-liste...", "Välj ETF...", "Velg ETF...", "Valitse ETF...", "Select conventional ETF template..."): "",
@@ -1229,30 +1501,27 @@ if st.session_state.step == 1:
             "Emerging Markets (iShares Emerging Markets - EEM)": "EEM"
         }
         selected_etf_template = st.selectbox(_t("Hent inspiration fra populære ETF'er:", "Hämta inspiration...", "Hent inspirasjon...", "Hae inspiraatiota...", "Get inspiration from popular ETFs:"), list(etf_templates.keys()))
-        etf_placeholder_value = etf_templates[selected_etf_template] if etf_templates[selected_etf_template] != "" else "SPY"
-
-        col_peel_t, col_peel_n = st.columns([2, 1])
-        with col_peel_t:
-            peel_ticker = st.text_input(_t("Indtast konventionel ETF-ticker:", "Ange vanlig ETF-ticker:", "Skriv inn vanlig ETF-ticker:", "Syötä perinteinen ETF-ticker:", "Enter conventional ETF ticker (e.g., SPY, QQQ):"), value=etf_placeholder_value, key="peel_ticker_input")
-        with col_peel_n:
-            top_n = st.selectbox(
-                _t("Antal selskaber at analysere:", "Antal bolag att analysera:", "Antall selskaper å analysere:", "Analysoitavien yritysten määrä:", "Top holdings to screen:"),
-                [10, 20, 30, 40, 50],
-                index=1,
-                key="peel_top_n_select"
-            )
         
-        if st.button("🗳️ " + _t("Rens ETF", "Purify ETF", "Purify ETF", "Puhdista ETF", "Purify ETF"), use_container_width=True, key="home_purify_etf_btn"):
+        # AUTO-RENSNING VED VALG FRA GLIDENDE RULLEMENU (NYSKABENDE UX!)
+        if selected_etf_template != _t("Vælg ETF fra inspirations-liste...", "Välj ETF...", "Velg ETF...", "Valitse ETF...", "Select conventional ETF template...") and etf_templates[selected_etf_template] != st.session_state.get("last_peeled_etf_ticker", ""):
+            peel_ticker_val = etf_templates[selected_etf_template]
+            with st.spinner(_t("Scanner fondens største beholdninger og frasorterer uetisk gæld/forretning...", "Scannar fondens innehav...", "Scanner fondens posisjoner...", "Tarkistetaan rahaston omistuksia...", "Scanning holdings and purging non-compliant businesses...")):
+                peeled_data = purify_conventional_etf(GEMINI_API_KEY, peel_ticker_val, top_n)
+                if peeled_data:
+                    st.session_state.peeled_etf_list = peeled_data
+                    st.session_state.last_peeled_etf_ticker = peel_ticker_val.upper()
+                    st.rerun()
+
+        if st.button("🗳️ " + _t("Rens ETF", "Purify ETF", "Purify ETF", "Puhdista ETF", "Purify ETF"), use_container_width=True, key="home_purify_etf_btn_home"):
             if peel_ticker:
                 with st.spinner(_t("Scanner fondens største beholdninger og frasorterer uetisk gæld/forretning...", "Scannar fondens innehav...", "Scanner fondens posisjoner...", "Tarkistetaan rahaston omistuksia...", "Scanning holdings and purging non-compliant businesses...")):
-                    # Sender det dynamiske valg (top_n) ind i purifier-motoren!
                     peeled_data = purify_conventional_etf(GEMINI_API_KEY, peel_ticker, top_n)
                     if peeled_data:
                         st.session_state.peeled_etf_list = peeled_data
                         st.session_state.last_peeled_etf_ticker = peel_ticker.upper()
                         st.rerun()
 
-        # RETTET: Viser udelukkende de overlevende COMPLIANT selskaber. Non-compliant skjules helt!
+        # RETTET: Viser udelukkende de overlevende COMPLIANT selskaber. Non-compliant selskaber skjules helt!
         if st.session_state.peeled_etf_list:
             st.write(" ")
             st.subheader("📋 " + _t(f"Shariah-godkendte overlevende i {st.session_state.last_peeled_etf_ticker}", f"Shariah-godkända bolag i {st.session_state.last_peeled_etf_ticker}", f"Shariah-godkjente selskaper i {st.session_state.last_peeled_etf_ticker}", f"Shariah-yhteensopivat sijoituskohteet {st.session_state.last_peeled_etf_ticker}", f"Shariah-Compliant Survivors in {st.session_state.last_peeled_etf_ticker}"))
@@ -1279,7 +1548,7 @@ if st.session_state.step == 1:
                             if ticker in st.session_state.watchlist_list:
                                 st.success(_t("Tilføjet!", "Tillagd!", "Lagt til!", "Lisätty!", "Added!"))
                             else:
-                                if st.button(_t("➕ Watchlist", "➕ Watchlist", "➕ Watchlist", "➕ Tarkkailulista", "➕ Watchlist"), key=f"add_peel_watchlist_{ticker}_{idx}", use_container_width=True):
+                                if st.button(_t("➕ Watchlist", "➕ Watchlist", "➕ Watchlist", "➕ Tarkkailulista", "➕ Watchlist"), key=f"add_peel_watchlist_home_{ticker}_{idx}", use_container_width=True):
                                     st.session_state.watchlist_list.append(ticker)
                                     st.success(_t(f"{ticker} tilføjet!", f"{ticker} tillagd!", f"{ticker} lagt til!", f"{ticker} lisätty!", f"{ticker} added!"))
                                     time.sleep(1)
@@ -1303,33 +1572,31 @@ if st.session_state.step == 1:
         # NYSKREVET FORSIDE-TEKST FRA DIG (100% PRÆCIS INTEGRERET)
         render_html(_t("""
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h2 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🗳️ LLM Council</h2>
     <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #C5A880 !important;">🛡️ Den nemme vej til en global og Shariah-kompatibel portefølje</h3>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Det burde være nemt at opbygge en rolig, passiv og etisk formue. Men som muslimsk investor i Norden rammer man hurtigt en mur.
+        Det burde være nemt at opbygge en rolig, passive og etisk formue. Men som muslimsk investor i Europa rammer man hurtigt en mur.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        På grund af komplekse EU-regler er mange store islamiske fonde spærret på de nordiske handelsplatforme. Det efterlader dig i en umulig blindgyde: Enten skal du gå på kompromis med dine værdier, lade helt være med at investere, eller bruge uoverskueligt meget zeit på selv at lege aktieanalytiker og scanne regnskaber.
+        På grund af komplekse EU-regler er mange store islamiske fonde spærret på de europæiske handelsplatforme. Det efterlader dig i en umulig blindgyde: Enten skal du gå på kompromis med dine værdier, lade helt være med at investere, eller bruge uoverskueligt meget tid på selv at lege aktieanalytiker og scanne regnskaber.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council er sat i verden for at åbne markedet op igen.</strong>
+        <strong>Mizan Finance er sat i verden for at åbne markedet op igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
-        Vi finkæmmer det globale marked for dig – fra brede islamiske indeksfonde (som Invesco Dow Jones) og spændende regions-ETF'er (som f.eks. Saudi-Arabien) til stærke enkeltaktier. Vores værktøj sorterer automatisk de låste roadblocks fra, så du kun præsenteres for Shariah-godkendte investeringer, du rent faktisk kan købe direkte fra din foretrukne nordiske platform.
+        We scan the global market for you – from broad Islamic index funds (like Invesco Dow Jones) and exciting regional ETFs (such as Saudi Arabia) to strong individual stocks. Our tool automatically filters out the locked roadblocks, so you are only presented with Shariah-approved investments you can actually buy directly from your favorite Nordic platform.
     </p>
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h2 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🗳️ LLM Council</h2>
     <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #C5A880 !important;">🛡️ Den enkla vägen till en global och Shariah-kompatibel portfölj</h3>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Det borde vara enkelt att bygga en lugn, passiv och etisk förmögenhet. Men som muslimsk investerare i Norden slår man snabbt i en vägg.
+        Det borde vara enkelt att bygga en lugn, passiv och etisk förmögenhet. Men som muslimsk investerare i Europa slår man snabbt i en vägg.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        På grund av komplexa EU-regler är många stora islamiska fonder spärrade på de nordiska handelsplattformarna. Det lämnar dig i en omöjlig återvändsgränd: Antingen måste du kompromissa med dina värderingar, helt avstå från att investera, eller lägga orimligt mycket tid på att själv leka aktieanalytiker och scanna årsredovisningar.
+        På grund av komplexa EU-regler är många stora islamiska fonder spärrade på de europeiska handelsplattformarna. Det lämnar dig i en omöjlig återvändsgränd: Antingen måste du kompromissa med dina värderingar, helt avstå från att investera, eller lägga orimligt mycket tid på att själv leka aktieanalytiker och scanna årsredovisningar.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council skapades för att öppna marknaden igen.</strong>
+        <strong>Mizan Finance skapades för att öppna marknaden igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         Vi finkämme den globala marknaden åt dig – från breda islamiska indexfonde (som Invesco Dow Jones) och spännande region-ETF:er (som f.ex. Saudiarabien) till starka enskilda aktier. Vårt verktyg sorterar automatiskt bort de låsta hindren, so att du bara presenteras för Shariah-godkända investeringar som du faktiskt kan köpa direkt från din favoritplattform i Norden.
@@ -1337,16 +1604,15 @@ if st.session_state.step == 1:
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h2 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🗳️ LLM Council</h2>
     <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #C5A880 !important;">🛡️ Den nemme veien til en global og Shariah-kompatibel portefølje</h3>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Det burde være enkelt å bygge en rolig, passiv og etisk formue. Men som muslimsk investor i Norden rammer man raskt en mur.
+        Det burde være enkelt å bygge en rolig, passiv og etisk formue. Men som muslimsk investor i Europa rammer man raskt en mur.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        På grunn av komplekse EU-regler er mange store islamiske fond sperret på de nordiske handelsplattformene. Det etterlater deg i en umulig blindvei: Enten må du inngå kompromiss med dine verdier, la helt være å investere, eller bruke uoverskuelig mye tid på selv å leke aksjeanalytiker og scanne regnskaper.
+        På grunn av komplekse EU-regler er mange store islamiske fond sperret på de europeiske handelsplattformene. Det etterlater deg i en umulig blindvei: Enten må du inngå kompromiss med dine verdier, la helt være å investere, eller bruke uoverskuelig mye tid på selv å leke aksjeanalytiker og scanne regnskaper.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council er satt i verden for å åpne markedet op igen.</strong>
+        <strong>Mizan Finance er satt i verden for å åpne markedet op igen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         We scan the global market for you – from broad Islamic index funds (like Invesco Dow Jones) and exciting region-ETFs (such as Saudi Arabia) to strong single stocks. Our tool automatically filters out the locked roadblocks, so you are only presented with Shariah-approved investments you can actually buy directly from your favorite Nordic platform.
@@ -1354,16 +1620,15 @@ if st.session_state.step == 1:
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h2 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🗳️ LLM Council</h2>
     <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #C5A880 !important;">🛡️ Helppo tie globaaliin ja Shariah-yhteensopivaan salkkuun</h3>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Rauhallisen, passiivisen ja eettisen varallisuuden kerryttämisen pitäisi olla helppoa. Mutta muslimisijoittajana Pohjoismaissa törmäät nopeasti seinään.
+        Rauhallisen, passiivisen ja eettisen varallisuuden kerryttämisen pitäisi olla helppoa. Mutta muslimisijoittajana Euroopassa törmäät nopeasti seinään.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Monimutkaisten EU-sääntöjen vuoksi monet suuret islamilaiset rahastot on estetty pohjoismaisissa kaupankäyntialustoissa. Tämä jättää sinut mahdottomaan umpikujaan: sinun on joko tingittävä arvoistasi, jätettävä sijoittamatta kokonaan tai käytettävä kohtuuttomasti aikaa osakeanalyytikon leikkimiseen ja tilinpäätösten suodattamiseen.
+        Monimutkaisten EU-sääntöjen vuoksi monet suuret islamilaiset rahastot on estetty eurooppalaisissa kaupankäyntialustoissa. Tämä jättää sinut mahdottomaan umpikujaan: sinun on joko tingittävä arvoistasi, jätettävä sijoittamatta kokonaan tai käytettävä kohtuuttomasti aikaa osakeanalyytikon leikkimiseen ja tilinpäätösten suodattamiseen.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council on perustettu avaamaan markkinat sinulle uudelleen.</strong>
+        <strong>Mizan Finance on perustettu avaamaan markkinat sinulle uudelleen.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         Kartoitamme globaalit markkinat puolestasi – laajoista islamilaisista indeksirahastoista (kuten Invesco Dow Jones) ja mielenkiintoisista alueellisista ETF-rahastoista (kuten Saudi-Arabia) vahvoihin yksittäisiin osakkeisiin. Työkalumme suodattaa lukitut esteet automaattisesti pois, jotta sinulle esitellään vain Shariah-hyväksyttyjä sijoituksia, joita voit aidosti ostaa suoraan pohjoismaisesta alustastasi.
@@ -1371,16 +1636,15 @@ if st.session_state.step == 1:
 </div>
 """, """
 <div style="border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-    <h2 style="font-family: 'Georgia', serif; margin-top: 0; color: #0F172A !important;">🗳️ LLM Council</h2>
     <h3 style="font-family: 'Georgia', serif; margin-top: 0; color: #C5A880 !important;">🛡️ The Easy Way to a Global, Shariah-Compliant Portfolio</h3>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Building a calm, passive, and ethical wealth journey should be easy. Yet, as a Muslim investor in the Nordics, you quickly run into a wall.
+        Building a calm, passive, and ethical wealth journey should be easy. Yet, as a Muslim investor in Europe, you quickly run into a wall.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        Due to complex EU regulations, many large Islamic funds are blocked on Nordic brokerage platforms. This leaves you in an impossible dead-end: you must either compromise on your values, abstain from investing altogether, or spend endless hours playing stock analyst and auditing financial statements.
+        Due to complex EU regulations, many large Islamic funds are blocked on European brokerage platforms. This leaves you in an impossible dead-end: you must either compromise on your values, abstain from investing altogether, or spend endless hours playing stock analyst and auditing financial statements.
     </p>
     <p style="margin-bottom: 12px; font-size: 15px; line-height: 1.6;">
-        <strong>LLM Council was created to reopen the market for you.</strong>
+        <strong>Mizan Finance is created to reopen the market for you.</strong>
     </p>
     <p style="margin-bottom: 0; font-size: 15px; line-height: 1.6;">
         We scan the global market for you – from broad Islamic index funds (like Invesco Dow Jones) and exciting regional ETFs (such as Saudi Arabia) to strong individual stocks. Our tool automatically filters out the locked roadblocks, so you are only presented with Shariah-approved investments you can actually buy directly from your favorite Nordic platform.
@@ -1516,7 +1780,7 @@ elif st.session_state.step == 2:
                 st.rerun()
 
 
-# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (FEJLSIKREDE STANDARD SLIDERE) ---
+# --- TRIN 3: INVESTERINGSPROFIL & ALLOKERING (INTELIGENTE SLIDERE UDEN OVER-SHOOT) ---
 elif st.session_state.step == 3:
     st.subheader(_t("Definer din investeringsprofil", "Definiera din investeringsprofil", "Definer din investeringsprofil", "Määritä sijoitusprofiilisi", "Define your investment profile"))
     
@@ -1549,7 +1813,7 @@ elif st.session_state.step == 3:
     st.subheader(_t("Angiv din ønskede mål-allokering", "Ange din önskade måstallokering", "Angi din ønskede målallokering", "Aseta tavoitesalkkusi hajautus", "Specify your target asset allocation"))
     st.write(_t("Træk i sliderne nedenfor. Din samlede vægtning skal give præcis 100% samlet.", "Dra i reglagen nedan. Din totala allokering måste bli totalt 100%.", "Dra i sliderne nedenfor. Din samlede vekting må gi 100% til sammen.", "Säädä liukusäätimiä alta. Tavoiteosuuden on oltava tasan 100 %.", "Adjust the sliders below. Your total allocation must equal exactly 100% in total."))
     
-    # RETTET: Faste standard slidere fra 0 til 100 eliminerer fuldstændig redacted leak errors!
+    # Slidere med faste værdier (Intet crash!)
     target_stocks = st.slider(_t("Equities (Aktier) %", "Equities (Aktier) %", "Equities (Aksjer) %", "Osakkeet %", "Equities %"), 0, 100, key="slider_stocks")
     target_sukuk = st.slider(_t("Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %", "Sukuk %"), 0, 100, key="slider_sukuk")
     target_commodities = st.slider(_t("Commodities (Råvarer) %", "Commodities (Råvarer) %", "Commodities (Råvarer) %", "Raaka-aineet %", "Commodities %"), 0, 100, key="slider_commodities")
@@ -1637,7 +1901,7 @@ elif st.session_state.step == 4:
         if is_manual:
             col_m1, col_m2 = st.columns(2)
             with col_m1:
-                manual_name = st.text_input(_t("Navn på aktiv:", "Namn på tillgång:", "Navn på aktiv:", "Omaisuuserän nimi:", "Asset name:"), placeholder="F.eks. Saxo Kontant DKK")
+                manual_name = st.text_input(_t("Navn på aktiv:", "Navn på aktiv:", "Namn på tillgång:", "Omaisuuserän nimi:", "Asset name:"), placeholder="F.eks. Saxo Kontant DKK")
             with col_m2:
                 manual_value = st.number_input(_t("Samlet værdi i DKK:", "Total värde i DKK:", "Samlet verdi i DKK:", "Kokonaisarvo DKK:", "Total value in DKK:"), min_value=1, value=1000)
                 
@@ -1678,7 +1942,7 @@ elif st.session_state.step == 4:
             if search_query:
                 search_results = search_tickers_by_name_multi(search_query)
                 
-                # FEJLSIKRET FUZZY SØGEHJÆLPER ("Mente du...")
+                # Fuzzy søgehjælper
                 import difflib
                 close_matches = difflib.get_close_matches(search_query.upper(), [k.upper() for k in failsafe_db.keys()], n=3, cutoff=0.3)
                 
@@ -1933,7 +2197,7 @@ st.warning(_t(
     "Legal Disclaimer:\n\n"
     "⚖️ Mizan Finance är ett automatiserat, AI-baserat informations- och inspirationsverktyg för personligt bruk. "
     "Vi erbjuder INTE auktoriserad eller licensierad finansiell rådgivning, och vi fattar inte formella investeringsbeslut för din räkning.\n\n"
-    "Finansiella marknader innebär alltid en risk för förlust, och Shariah-tolkningar kan variera mellan olika rättslärda och madhabs. "
+    "Finansiella marknader innebär alltid en risk för förlust, och Shariah-tolkningar kan variere mellan olika rättslärda och madhabs. "
     "Du bör alltid basera dina slutgiltiga investeringsval på dina egna bedömningar, personliga övertygelser och sunt förnuft.\n\n"
     "For en oberoende och manuell granskning av skuldkvoter, finansiella siffror och compliance rekommenderas att använda det erkända verktyget Zoya Finance Platform.",
     
@@ -1942,7 +2206,7 @@ st.warning(_t(
     "Vi tilbyr IKKE autorisert eller lisensiert finansiell rådgivning, og vi foretar ikke formelle investeringsbeslutninger på dine vegne.\n\n"
     "Finansielle markeder innebærer alltid en risiko for tap, og Shariah-fortolkninger kan variere på tvers av forskjellige rettslærde og madhabs. "
     "Du bør alltid basere dine endelige investeringsvalg på dine egne vurderinger, personlige overbevisninger og sunn fornuft.\n\n"
-    "For en uavhengig og manuell revisjon av gjeldsforhold, regnskapstall og compliance anbefaler vi å bruke det anerkjente verktøyet Zoya Finance Platform.",
+    "For en uafhengig og manuell revisjon av gjeldsforhold, regnskapstall og compliance anbefaler vi å bruke det anerkjente verktøyet Zoya Finance Platform.",
     
     "Legal Disclaimer:\n\n"
     "⚖️ Mizan Finance on automatisoitu, tekoälypohjainen tieto- ja inspiraatiotyökalu henkilökohtaiseen käyttöön. "
